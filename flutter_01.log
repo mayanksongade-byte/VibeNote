@@ -1,0 +1,83 @@
+Flutter crash report.
+Please report a bug at https://github.com/flutter/flutter/issues.
+
+## command
+
+flutter --no-color pub get
+
+## exception
+
+PathExistsException: PathExistsException: Cannot create link, path = 'C:\notexa_flutter_task\linux\flutter\ephemeral\.plugin_symlinks\flutter_local_notifications_linux' (OS Error: Cannot create a file when that file already exists, errno = 183)
+
+```
+#0      _Link.throwIfError (dart:io/link.dart:358:7)
+#1      _Link.createSync (dart:io/link.dart:276:5)
+#2      ForwardingLink.createSync (package:file/src/forwarding/forwarding_link.dart:20:16)
+#3      ForwardingLink.createSync (package:file/src/forwarding/forwarding_link.dart:20:16)
+#4      _createPlatformPluginSymlinks (package:flutter_tools/src/flutter_plugins.dart:1143:12)
+#5      createPluginSymlinks (package:flutter_tools/src/flutter_plugins.dart:1067:5)
+#6      refreshPluginsList (package:flutter_tools/src/flutter_plugins.dart:1192:5)
+<asynchronous suspension>
+#7      FlutterProject.ensureReadyForPlatformSpecificTooling (package:flutter_tools/src/project.dart:401:5)
+<asynchronous suspension>
+#8      PackagesGetCommand.runCommand (package:flutter_tools/src/commands/packages.dart:395:9)
+<asynchronous suspension>
+#9      FlutterCommand.run.<anonymous closure> (package:flutter_tools/src/runner/flutter_command.dart:1590:27)
+<asynchronous suspension>
+#10     AppContext.run.<anonymous closure> (package:flutter_tools/src/base/context.dart:154:19)
+<asynchronous suspension>
+#11     CommandRunner.runCommand (package:args/command_runner.dart:212:13)
+<asynchronous suspension>
+#12     FlutterCommandRunner.runCommand.<anonymous closure> (package:flutter_tools/src/runner/flutter_command_runner.dart:496:9)
+<asynchronous suspension>
+#13     AppContext.run.<anonymous closure> (package:flutter_tools/src/base/context.dart:154:19)
+<asynchronous suspension>
+#14     FlutterCommandRunner.runCommand (package:flutter_tools/src/runner/flutter_command_runner.dart:431:5)
+<asynchronous suspension>
+#15     FlutterCommandRunner.run.<anonymous closure> (package:flutter_tools/src/runner/flutter_command_runner.dart:307:33)
+<asynchronous suspension>
+#16     run.<anonymous closure>.<anonymous closure> (package:flutter_tools/runner.dart:104:11)
+<asynchronous suspension>
+#17     AppContext.run.<anonymous closure> (package:flutter_tools/src/base/context.dart:154:19)
+<asynchronous suspension>
+#18     main (package:flutter_tools/executable.dart:103:3)
+<asynchronous suspension>
+```
+
+## flutter doctor
+
+```
+[✓] Flutter (Channel stable, 3.41.4, on Microsoft Windows [Version 10.0.26200.8457], locale en-IN) [222ms]
+    • Flutter version 3.41.4 on channel stable at C:\flutter_windows_3.41.4-stable\flutter
+    • Upstream repository https://github.com/flutter/flutter.git
+    • Framework revision ff37bef603 (3 months ago), 2026-03-03 16:03:22 -0800
+    • Engine revision e4b8dca3f1
+    • Dart version 3.11.1
+    • DevTools version 2.54.1
+    • Feature flags: enable-web, enable-linux-desktop, enable-macos-desktop, no-enable-windows-desktop, enable-android, enable-ios, cli-animations, enable-native-assets, omit-legacy-version-file, enable-lldb-debugging, enable-uiscene-migration
+
+[✓] Windows Version (Windows 11 or higher, 25H2, 2009) [1,214ms]
+
+[✓] Android toolchain - develop for Android devices (Android SDK version 36.1.0) [3.4s]
+    • Android SDK at C:\Users\Mayank\AppData\Local\Android\sdk
+    • Emulator version 36.4.10.0 (build_id 15004761) (CL:N/A)
+    • Platform android-36.1, build-tools 36.1.0
+    • Java binary at: C:\Program Files\Android\Android Studio\jbr\bin\java
+      This is the JDK bundled with the latest Android Studio installation on this machine.
+      To manually set the JDK path, use: `flutter config --jdk-dir="path/to/jdk"`.
+    • Java version OpenJDK Runtime Environment (build 21.0.9+-14787801-b1163.94)
+    • All Android licenses accepted.
+
+[✓] Chrome - develop for the web [6ms]
+    • Chrome at C:\Program Files\Google\Chrome\Application\chrome.exe
+
+[✓] Connected device (3 available) [568ms]
+    • SM A146B (wireless) (mobile) • adb-RZCW901SAPE-qMVtyG._adb-tls-connect._tcp • android-arm64  • Android 15 (API 35)
+    • Chrome (web)                 • chrome                                       • web-javascript • Google Chrome 148.0.7778.218
+    • Edge (web)                   • edge                                         • web-javascript • Microsoft Edge 148.0.3967.96
+
+[✓] Network resources [624ms]
+    • All expected network resources are available.
+
+• No issues found!
+```
