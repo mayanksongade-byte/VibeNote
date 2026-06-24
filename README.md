@@ -1,4 +1,4 @@
-# notexa_flutter_task
+#VibeNote
 
 A new Flutter project.
 
