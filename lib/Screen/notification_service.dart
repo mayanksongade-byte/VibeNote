@@ -2,11 +2,25 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 
+@pragma('vm:entry-point')
+void notificationTapBackground(NotificationResponse response) {
+  NotificationService.handleAction(response);
+}
+
 class NotificationService {
+  static String? pendingOpenNoteId;
+  static void Function(String noteId)? onOpenNoteRequest;
+
   static final FlutterLocalNotificationsPlugin notificationsPlugin =
   FlutterLocalNotificationsPlugin();
 
   static bool _initialized = false;
+
+  static String? consumePendingOpenNoteId() {
+    final id = pendingOpenNoteId;
+    pendingOpenNoteId = null;
+    return id;
+  }
 
   static Future<void> init() async {
     if (_initialized) return;
@@ -21,7 +35,8 @@ class NotificationService {
 
     await notificationsPlugin.initialize(
       settings: initSettings,
-      onDidReceiveNotificationResponse: (NotificationResponse response) {},
+      onDidReceiveNotificationResponse: handleAction,
+      onDidReceiveBackgroundNotificationResponse: notificationTapBackground,
     );
 
     await notificationsPlugin
@@ -32,6 +47,47 @@ class NotificationService {
     _initialized = true;
   }
 
+  static Future<void> handleAction(NotificationResponse response) async {
+    tz.initializeTimeZones();
+    tz.setLocalLocation(tz.getLocation('Asia/Kolkata'));
+
+    final payload = response.payload ?? "";
+    final parts = payload.split("|||");
+
+    if (parts.length < 4) return;
+
+    final id = int.tryParse(parts[0]);
+    final title = parts[1];
+    final body = parts[2];
+    final noteId = parts[3];
+
+    if (id == null) return;
+
+    final actionId = response.actionId ?? "";
+
+    if (actionId == "done_action") {
+      await cancelNotification(id);
+      return;
+    }
+
+    if (actionId == "snooze_action") {
+      await scheduleNotification(
+        id: id,
+        title: title,
+        body: body,
+        scheduledTime: DateTime.now().add(const Duration(minutes: 10)),
+        noteId: noteId,
+      );
+      return;
+    }
+
+    if (actionId == "open_action" || actionId.isEmpty) {
+      pendingOpenNoteId = noteId;
+      onOpenNoteRequest?.call(noteId);
+      return;
+    }
+  }
+
   static Future<void> cancelNotification(int id) async {
     await notificationsPlugin.cancel(id: id);
   }
@@ -40,17 +96,8 @@ class NotificationService {
     await notificationsPlugin.cancelAll();
   }
 
-  static Future<List<PendingNotificationRequest>>
-  getPendingNotifications() async {
-    return notificationsPlugin.pendingNotificationRequests();
-  }
-
-  static Future<bool> isNotificationPending(int id) async {
-    final pending = await getPendingNotifications();
-    return pending.any((n) => n.id == id);
-  }
-
   static Future<void> scheduleNotification({
+    String? noteId,
     required int id,
     required String title,
     required String body,
@@ -60,62 +107,70 @@ class NotificationService {
 
     await cancelNotification(id);
 
-    const androidDetails = AndroidNotificationDetails(
+    final cleanBody = body.trim().isEmpty
+        ? "Open VibeNote to view this note."
+        : body.trim();
+
+    final payload = "$id|||$title|||$cleanBody|||${noteId ?? ""}";
+
+    final androidDetails = AndroidNotificationDetails(
       'vibenote_channel',
       'VibeNote Reminders',
-      channelDescription: 'Reminder notifications for VibeNote notes',
+      channelDescription: 'Smart reminder notifications for your notes',
       importance: Importance.max,
       priority: Priority.high,
       playSound: true,
       enableVibration: true,
+      ticker: 'VibeNote Reminder',
+      styleInformation: BigTextStyleInformation(
+        cleanBody,
+        contentTitle: title,
+        summaryText: 'VibeNote',
+      ),
+      actions: const [
+        AndroidNotificationAction(
+          'done_action',
+          'Done',
+          showsUserInterface: false,
+          cancelNotification: true,
+        ),
+        AndroidNotificationAction(
+          'snooze_action',
+          'Snooze 10m',
+          showsUserInterface: false,
+          cancelNotification: true,
+        ),
+        AndroidNotificationAction(
+          'open_action',
+          'Open',
+          showsUserInterface: true,
+          cancelNotification: true,
+        ),
+      ],
     );
 
-    const details = NotificationDetails(android: androidDetails);
-
-    final shortBody =
-    body.length > 100 ? "${body.substring(0, 100)}..." : body;
+    final details = NotificationDetails(android: androidDetails);
 
     try {
       await notificationsPlugin.zonedSchedule(
         id: id,
-        title: "🔔 $title",
-        body: shortBody,
+        title: title,
+        body: cleanBody,
         scheduledDate: tz.TZDateTime.from(scheduledTime, tz.local),
         notificationDetails: details,
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        payload: payload,
       );
     } catch (_) {
       await notificationsPlugin.zonedSchedule(
         id: id,
-        title: "🔔 $title",
-        body: shortBody,
+        title: title,
+        body: cleanBody,
         scheduledDate: tz.TZDateTime.from(scheduledTime, tz.local),
         notificationDetails: details,
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        payload: payload,
       );
     }
-  }
-
-  static Future<void> showInstantNotification({
-    required int id,
-    required String title,
-    required String body,
-  }) async {
-    const androidDetails = AndroidNotificationDetails(
-      'vibenote_channel',
-      'VibeNote Reminders',
-      channelDescription: 'Reminder notifications for VibeNote notes',
-      importance: Importance.max,
-      priority: Priority.high,
-    );
-
-    const details = NotificationDetails(android: androidDetails);
-
-    await notificationsPlugin.show(
-      id: id,
-      title: title,
-      body: body,
-      notificationDetails: details,
-    );
   }
 }

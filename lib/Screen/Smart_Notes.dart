@@ -19,7 +19,9 @@ import 'notification_service.dart';
 import 'biometric_service.dart';
 
 class MyApp2 extends StatefulWidget {
-  const MyApp2({super.key});
+  final String? openNoteId;
+
+  const MyApp2({super.key, this.openNoteId});
 
   @override
   State<MyApp2> createState() => _HomeScreenState();
@@ -55,6 +57,9 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
     });
 
     loadNotes();
+    NotificationService.onOpenNoteRequest = (noteId) {
+      if (mounted) openNoteFromNotification(noteId);
+    };
   }
 
   @override
@@ -83,6 +88,38 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
     categories = categorySet.toList();
   }
 
+  Future<void> openNoteFromNotification(String noteId) async {
+    final index = notes.indexWhere((n) => n.id == noteId);
+
+    if (index == -1) {
+      showMessage("Note not found.");
+      return;
+    }
+
+    final note = notes[index];
+
+    if (note.isLocked) {
+      final ok = await checkPin(note);
+      if (!ok || !mounted) return;
+    }
+
+    if (!mounted) return;
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => NoteDetailScreen(
+          note: note,
+          onBack: () => Navigator.pop(context),
+          onEdit: () {
+            Navigator.pop(context);
+            openEditNote(note);
+          },
+        ),
+      ),
+    );
+  }
+
   Future<void> saveNotes() async {
     final prefs = await SharedPreferences.getInstance();
     final notesJson = notes.map((e) => jsonEncode(e.toJson())).toList();
@@ -103,6 +140,14 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
       updateCategories();
       applyFilter();
     });
+    final openId =
+        widget.openNoteId ?? NotificationService.consumePendingOpenNoteId();
+
+    if (openId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        openNoteFromNotification(openId);
+      });
+    }
   }
 
   void applyFilter() {
@@ -2077,6 +2122,7 @@ class _PinEntryPageState extends State<_PinEntryPage> {
     controller.dispose();
     pinFocusNode.dispose();
     super.dispose();
+    NotificationService.onOpenNoteRequest = null;
   }
 
   void submitPin() {

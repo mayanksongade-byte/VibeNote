@@ -626,10 +626,40 @@ class _AddNoteScreenState extends State<AddNoteScreen>
     if (reminderTime != null) {
       try {
         await NotificationService.cancelNotification(targetNoteId);
+        final noteText = noteController.text.trim();
+
+        String categoryEmoji(String category) {
+          switch (category.toLowerCase()) {
+            case "study":
+              return "🟦";
+            case "work":
+              return "🟩";
+            case "personal":
+              return "🟨";
+            case "important":
+              return "🟥";
+            default:
+              return "📝";
+          }
+        }
+
+        final preview = noteText.length > 120
+            ? "${noteText.substring(0, 120)}..."
+            : noteText;
+
+        final notificationTitle = "📝 VibeNote • Reminder";
+
+        final notificationBody =
+            "${categoryEmoji(selectedCategory)} $title\n"
+            "────────────────\n"
+            "$preview\n\n"
+            "Tap to open your note";
+
         await NotificationService.scheduleNotification(
+          noteId: noteId,
           id: targetNoteId,
-          title: title,
-          body: note,
+          title: notificationTitle,
+          body: notificationBody,
           scheduledTime: reminderTime!,
         );
       } catch (e) {

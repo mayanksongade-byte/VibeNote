@@ -316,7 +316,7 @@ class SplashScreen extends StatefulWidget {
 class _SplashScreenState extends State<SplashScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
-
+  final openNoteId = NotificationService.consumePendingOpenNoteId();
   late final Animation<double> logoFade;
   late final Animation<double> logoScale;
   late final Animation<double> logoRotate;
@@ -385,6 +385,7 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _goNext() async {
+
     // ✅ Small delay after animation for smooth feel
     await Future.delayed(const Duration(milliseconds: 400));
     if (!mounted) return;
@@ -394,6 +395,7 @@ class _SplashScreenState extends State<SplashScreen>
 
     final appLockOn = prefs.getBool("appLockOn") ?? false;
     final appPin = prefs.getString("appPin");
+    final openNoteId = NotificationService.consumePendingOpenNoteId();
 
     if (!mounted) return;
 
@@ -401,8 +403,8 @@ class _SplashScreenState extends State<SplashScreen>
       context,
       _premiumRoute(
         appLockOn && appPin != null && appPin.isNotEmpty
-            ? PinLockScreen(correctPin: appPin)
-            : const MyApp2(),
+            ? PinLockScreen(correctPin: appPin, openNoteId: openNoteId)
+            : MyApp2(openNoteId: openNoteId),
       ),
     );
   }
@@ -694,10 +696,12 @@ class _SplashScreenState extends State<SplashScreen>
 
 class PinLockScreen extends StatefulWidget {
   final String correctPin;
+  final String? openNoteId;
 
   const PinLockScreen({
     super.key,
     required this.correctPin,
+    this.openNoteId,
   });
 
   @override
@@ -707,6 +711,7 @@ class PinLockScreen extends StatefulWidget {
 class _PinLockScreenState extends State<PinLockScreen> {
   final TextEditingController pinController = TextEditingController();
   final FocusNode pinFocusNode = FocusNode();
+
 
   bool isPinFocused = false;
   bool obscurePin = true;
@@ -766,8 +771,7 @@ class _PinLockScreenState extends State<PinLockScreen> {
         context,
         PageRouteBuilder(
           transitionDuration: const Duration(milliseconds: 550),
-          pageBuilder: (_, animation, __) => const MyApp2(),
-          transitionsBuilder: (_, animation, __, child) {
+          pageBuilder: (_, animation, __) => MyApp2(openNoteId: widget.openNoteId),          transitionsBuilder: (_, animation, __, child) {
             return FadeTransition(opacity: animation, child: child);
           },
         ),
@@ -831,8 +835,7 @@ class _PinLockScreenState extends State<PinLockScreen> {
       context,
       PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 550),
-        pageBuilder: (_, animation, __) => const MyApp2(),
-        transitionsBuilder: (_, animation, __, child) {
+        pageBuilder: (_, animation, __) => MyApp2(openNoteId: widget.openNoteId),        transitionsBuilder: (_, animation, __, child) {
           return FadeTransition(
             opacity: animation,
             child: SlideTransition(
