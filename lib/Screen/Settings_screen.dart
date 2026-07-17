@@ -5,10 +5,9 @@ import 'dataModle.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../main.dart';
 import 'package:flutter/services.dart';
-import 'package:lite_rolling_switch/lite_rolling_switch.dart';
-import 'package:rainbow_edge_lighting/rainbow_edge_lighting.dart';
 import 'notification_service.dart';
 import 'biometric_service.dart';
+import 'package:audioplayers/audioplayers.dart';
 
 
 class SettingsScreen extends StatefulWidget {
@@ -30,6 +29,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool appLockOn = false;
   String? appPin;
   String? alarmSoundName;
+  final AudioPlayer _audioPlayer = AudioPlayer();
 
   @override
   void initState() {
@@ -44,7 +44,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       notificationsOn = prefs.getBool("notificationsOn") ?? true;
       appLockOn = prefs.getBool("appLockOn") ?? false;
       appPin = prefs.getString("appPin");
-      alarmSoundName = prefs.getString("alarmSoundName");
+      alarmSoundName = prefs.getString("notification_sound") ?? "default";
     });
   }
 
@@ -53,12 +53,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message),
+        content: Row(
+          children: [
+            Icon(
+              danger ? Icons.error_outline : Icons.check_circle_outline,
+              color: Colors.white,
+              size: 18,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
         behavior: SnackBarBehavior.floating,
-        backgroundColor:
-        danger ? Colors.redAccent : const Color(0xff7F5AF0),
+        backgroundColor: danger ? Colors.redAccent : const Color(0xff7F5AF0),
         shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16)),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        margin: const EdgeInsets.all(16),
+        duration: const Duration(milliseconds: 2500),
+        elevation: 4,
       ),
     );
   }
@@ -69,9 +90,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!mounted) return;
     setState(() => notificationsOn = value);
 
-    // ✅ cancel all notifications when turned off
     if (!value) {
       await NotificationService.cancelAllNotifications();
+    } else {
+      for (final note in widget.notes) {
+        if (note.hasActiveReminder) {
+          await NotificationService.scheduleNotification(
+            noteId: note.id,
+            id: note.notificationId,
+            title: "📝 VibeNote • Reminder",
+            body: "${note.title}\n${note.preview}",
+            scheduledTime: note.reminderTime!,
+          );
+        }
+      }
     }
 
     showMessage(
@@ -81,210 +113,209 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // PIN DIALOG
-  // ─────────────────────────────────────────────────────────────
-  Future<String?> showAppPinDialog({
-    required String title,
-    required String subtitle,
-    required String actionText,
-  }) async {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+  Future<void> previewNotificationSound(String soundKey) async {
+    if (soundKey == "default") {
+      showMessage("Default phone sounds cannot be previewed.");
+      return;
+    }
 
-    final controller = TextEditingController();
-    final focusNode = FocusNode();
+    await _audioPlayer.stop();
 
-    final result = await showDialog<String>(
+    await _audioPlayer.play(
+        AssetSource("sounds/$soundKey.ogg")
+    );
+  }
+
+  Future<void> changeNotificationSound() async {
+    final sounds = {
+      "default": "📱 Default Phone Sound",
+      "faaa": "😂 Faaaa",
+      "hindi_meme": "🔊 Garib Meme",
+      "jethalal_meme": "🤣 Jethalal",
+      "nahi_meme": "🙅 Nahi",
+      "depression_meme": "😔 Depression Meme",
+      "choti_bachi_ho_kya": "👧 Choti Bachi Ho Kya",
+      "danish_bhai": "😎 Danish Bhai",
+      "omae_wa_mu_shindeu": "☠️ Omae Wa Mou Shindeiru",
+      "omfo_song_jay_toffek": "🎵 Omfo Song",
+    };
+
+    final selected = await showModalBottomSheet<String>(
       context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) {
-        String? errorText;
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        final isDark = Theme.of(sheetContext).brightness == Brightness.dark;
 
-        return StatefulBuilder(
-          builder: (ctx, setDialogState) {
-            void submitPin() {
-              final pin = controller.text.trim();
-              if (pin.length != 4) {
-                setDialogState(
-                        () => errorText = "Enter 4-digit PIN");
-                return;
-              }
-              FocusManager.instance.primaryFocus?.unfocus();
-              Navigator.of(dialogContext).pop(pin);
-            }
-
-            return AlertDialog(
-              backgroundColor: isDark
-                  ? const Color(0xff151225)
-                  : Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(26),
+        return ClipRRect(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+            child: Container(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(sheetContext).size.height * 0.75,
               ),
-              title: Row(
+              padding: const EdgeInsets.fromLTRB(18, 12, 18, 28),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? const Color(0xff151225).withOpacity(0.96)
+                    : Colors.white.withOpacity(0.96),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(28),
+                ),
+                border: Border(
+                  top: BorderSide(color: Colors.white.withOpacity(0.20)),
+                ),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Container(
-                    height: 42,
-                    width: 42,
-                    decoration: const BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: LinearGradient(
-                        colors: [
-                          Color(0xff7F5AF0),
-                          Color(0xffFF6B9A)
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: isDark ? Colors.white24 : Colors.black12,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      Container(
+                        height: 42,
+                        width: 42,
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: LinearGradient(
+                            colors: [Color(0xff7F5AF0), Color(0xffFF6B9A)],
+                          ),
+                        ),
+                        child: const Icon(
+                          Icons.music_note_rounded,
+                          color: Colors.white,
+                          size: 20,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        "Notification Sound",
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                          color: isDark ? Colors.white : const Color(0xff151225),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Flexible(
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          ...sounds.entries.map((e) {
+                            final isSelected = alarmSoundName == e.key;
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(20),
+                                onTap: () {
+                                  HapticFeedback.selectionClick();
+                                  Navigator.pop(sheetContext, e.key);
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                    vertical: 12,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: isSelected
+                                        ? const Color(0xff7F5AF0).withOpacity(0.16)
+                                        : (isDark
+                                        ? Colors.white.withOpacity(0.06)
+                                        : Colors.black.withOpacity(0.03)),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(
+                                      color: isSelected
+                                          ? const Color(0xff7F5AF0).withOpacity(0.45)
+                                          : Colors.white.withOpacity(0.12),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          e.value,
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 14,
+                                            color: isDark
+                                                ? Colors.white
+                                                : const Color(0xff151225),
+                                          ),
+                                        ),
+                                      ),
+                                      if (e.key != "default")
+                                        GestureDetector(
+                                          onTap: () => previewNotificationSound(e.key),
+                                          child: Container(
+                                            padding: const EdgeInsets.all(6),
+                                            decoration: BoxDecoration(
+                                              shape: BoxShape.circle,
+                                              color: const Color(
+                                                0xff7F5AF0,
+                                              ).withOpacity(0.14),
+                                            ),
+                                            child: const Icon(
+                                              Icons.play_arrow_rounded,
+                                              color: Color(0xff7F5AF0),
+                                              size: 18,
+                                            ),
+                                          ),
+                                        ),
+                                      if (isSelected) ...[
+                                        const SizedBox(width: 8),
+                                        const Icon(
+                                          Icons.check_circle_rounded,
+                                          color: Color(0xff7F5AF0),
+                                          size: 20,
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
+                          }),
                         ],
                       ),
                     ),
-                    child: const Icon(Icons.lock_rounded,
-                        color: Colors.white, size: 22),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      title,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w900),
-                    ),
                   ),
                 ],
               ),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    subtitle,
-                    style: TextStyle(
-                      color: isDark
-                          ? Colors.white60
-                          : Colors.black54,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  RainbowEdgeLighting(
-                    enabled: true,
-                    radius: 18,
-                    child: TextField(
-                      controller: controller,
-                      focusNode: focusNode,
-                      autofocus: true,
-                      obscureText: true,
-                      textAlign: TextAlign.center,
-                      keyboardType: TextInputType.number,
-                      maxLength: 4,
-                      inputFormatters: [
-                        FilteringTextInputFormatter.digitsOnly,
-                        LengthLimitingTextInputFormatter(4),
-                      ],
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 8,
-                        color: isDark
-                            ? Colors.white
-                            : const Color(0xff151225),
-                      ),
-                      decoration: InputDecoration(
-                        hintText: "••••",
-                        errorText: errorText,
-                        counterText: "",
-                        filled: true,
-                        fillColor: isDark
-                            ? Colors.white.withOpacity(0.08)
-                            : const Color(0xffF4F1FF),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius:
-                          BorderRadius.circular(18),
-                          borderSide: BorderSide(
-                            color: isDark
-                                ? Colors.white
-                                .withOpacity(0.25)
-                                : Colors.black
-                                .withOpacity(0.14),
-                            width: 1.2,
-                          ),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius:
-                          BorderRadius.circular(18),
-                          borderSide: const BorderSide(
-                            color: Color(0xff7F5AF0),
-                            width: 1.8,
-                          ),
-                        ),
-                        errorBorder: OutlineInputBorder(
-                          borderRadius:
-                          BorderRadius.circular(18),
-                          borderSide: const BorderSide(
-                            color: Colors.redAccent,
-                            width: 1.4,
-                          ),
-                        ),
-                        focusedErrorBorder: OutlineInputBorder(
-                          borderRadius:
-                          BorderRadius.circular(18),
-                          borderSide: const BorderSide(
-                            color: Colors.redAccent,
-                            width: 1.6,
-                          ),
-                        ),
-                      ),
-                      onChanged: (_) {
-                        if (errorText != null) {
-                          setDialogState(
-                                  () => errorText = null);
-                        }
-                      },
-                      onSubmitted: (_) => submitPin(),
-                    ),
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () {
-                    FocusManager.instance.primaryFocus
-                        ?.unfocus();
-                    Navigator.of(dialogContext).pop(null);
-                  },
-                  child: const Text("Cancel"),
-                ),
-                FilledButton(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xff7F5AF0),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                  ),
-                  onPressed: submitPin,
-                  child: Text(actionText),
-                ),
-              ],
-            );
-          },
+            ),
+          ),
         );
       },
     );
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      focusNode.dispose();
-      controller.dispose();
+    if (selected == null) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString("notification_sound", selected);
+
+    setState(() {
+      alarmSoundName = selected;
     });
 
-    return result;
+    showMessage("Notification sounds updated 🔔");
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // VERIFY PIN
-  // ─────────────────────────────────────────────────────────────
   Future<bool> verifyCurrentPin() async {
     if (appPin == null || appPin!.isEmpty) {
       showMessage("Please set PIN first", danger: true);
       return false;
     }
 
-    // ✅ Try fingerprint first
     final bioAvailable = await BiometricService.isFingerprintAvailable();
     if (bioAvailable) {
       final result = await BiometricService.authenticate(
@@ -292,32 +323,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
       );
       if (!mounted) return false;
       if (result == BiometricResult.success) return true;
-      // fall through to PIN if biometric fails
     }
 
-    // PIN fallback
-    final enteredPin = await showAppPinDialog(
+    if (!mounted) return false;
+
+    final entered = await BiometricService.showPinEntry(
+      context,
       title: "Enter Current PIN",
-      subtitle: "Enter your current 4-digit PIN.",
       actionText: "Verify",
     );
     if (!mounted) return false;
-    if (enteredPin == null) return false;
-    if (enteredPin != appPin) {
+    if (entered == null) return false;
+    if (entered == "__biometric__") return true;
+    if (entered != appPin) {
       showMessage("Wrong PIN ❌", danger: true);
       return false;
     }
     return true;
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // CHANGE PIN
-  // ─────────────────────────────────────────────────────────────
   Future<void> changePin() async {
-    final newPin = await showAppPinDialog(
+    final newPin = await BiometricService.showPinEntry(
+      context,
       title: "Set App PIN",
-      subtitle: "Enter a 4-digit PIN to protect VibeNote.",
       actionText: "Save PIN",
+      allowBiometric: false,
     );
 
     if (!mounted) return;
@@ -331,9 +361,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     showMessage("PIN saved successfully ✅");
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // APP LOCK
-  // ─────────────────────────────────────────────────────────────
   Future<void> setAppLock(bool value) async {
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
@@ -369,43 +396,98 @@ class _SettingsScreenState extends State<SettingsScreen> {
     showMessage("App Lock disabled 🔓");
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // DELETE ALL NOTES
-  // ─────────────────────────────────────────────────────────────
   Future<void> deleteAllNotes() async {
-    final isDark =
-        Theme.of(context).brightness == Brightness.dark;
-
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor:
-        isDark ? const Color(0xff151225) : Colors.white,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(24),
-        ),
-        title: const Text(
-          "Delete All Notes?",
-          style: TextStyle(fontWeight: FontWeight.w900),
-        ),
-        content: const Text(
-          "This will permanently remove all notes and cancel all reminders. This action cannot be undone.",
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text("Cancel"),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.redAccent,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
+    final confirm = await _showGlassDialog<bool>(
+      builder: (dialogContext, isDark) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            height: 64,
+            width: 64,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: const LinearGradient(
+                colors: [Colors.redAccent, Color(0xffFF6B6B)],
               ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.redAccent.withOpacity(0.30),
+                  blurRadius: 20,
+                  offset: const Offset(0, 10),
+                ),
+              ],
             ),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text("Delete All"),
+            child: const Icon(
+              Icons.delete_forever_rounded,
+              color: Colors.white,
+              size: 30,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            "Delete All Notes?",
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+              color: isDark ? Colors.white : const Color(0xff151225),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            "This will permanently remove all notes and cancel all reminders. This action cannot be undone.",
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: isDark ? Colors.white60 : Colors.black54,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 22),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    side: BorderSide(
+                      color: isDark
+                          ? Colors.white.withOpacity(0.18)
+                          : Colors.black.withOpacity(0.12),
+                    ),
+                  ),
+                  child: Text(
+                    "Cancel",
+                    style: TextStyle(
+                      color: isDark ? Colors.white70 : Colors.black54,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.redAccent,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                  child: const Text(
+                    "Delete All",
+                    style: TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -424,126 +506,193 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // NEW: Export notes count info
-  // ─────────────────────────────────────────────────────────────
   void showNotesInfo() {
-    final isDark =
-        Theme.of(context).brightness == Brightness.dark;
     final total = widget.notes.length;
-    final archived =
-        widget.notes.where((n) => n.isArchived).length;
-    final locked =
-        widget.notes.where((n) => n.isLocked).length;
-    final withReminder =
-        widget.notes.where((n) => n.hasActiveReminder).length;
-    final favourite =
-        widget.notes.where((n) => n.isFavourite).length;
-    final withImage =
-        widget.notes.where((n) => n.imagePath != null).length;
+    final archived = widget.notes.where((n) => n.isArchived).length;
+    final locked = widget.notes.where((n) => n.isLocked).length;
+    final withReminder = widget.notes.where((n) => n.hasActiveReminder).length;
+    final favourite = widget.notes.where((n) => n.isFavourite).length;
+    final withImage = widget.notes.where((n) => n.imagePath != null).length;
 
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        backgroundColor:
-        isDark ? const Color(0xff151225) : Colors.white,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(24),
-        ),
-        title: const Row(
-          children: [
-            Icon(Icons.info_rounded, color: Color(0xff7F5AF0)),
-            SizedBox(width: 10),
-            Text(
-              "Notes Info",
-              style: TextStyle(fontWeight: FontWeight.w900),
-            ),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _infoRow("Total Notes", "$total",
-                Icons.sticky_note_2_rounded, Colors.blueAccent,
-                isDark: isDark),
-            _infoRow("Archived", "$archived",
-                Icons.archive_rounded, Colors.orange,
-                isDark: isDark),
-            _infoRow("Locked", "$locked", Icons.lock_rounded,
-                Colors.orangeAccent,
-                isDark: isDark),
-            _infoRow("Favourites", "$favourite",
-                Icons.favorite_rounded, Colors.redAccent,
-                isDark: isDark),
-            _infoRow("With Reminders", "$withReminder",
-                Icons.alarm_rounded, const Color(0xff7F5AF0),
-                isDark: isDark),
-            _infoRow("With Images", "$withImage",
-                Icons.image_rounded, const Color(0xff2CB67D),
-                isDark: isDark),
-          ],
-        ),
-        actions: [
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xff7F5AF0),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
+    _showGlassDialog<void>(
+      builder: (dialogContext, isDark) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Container(
+                height: 46,
+                width: 46,
+                decoration: const BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    colors: [Color(0xff7F5AF0), Color(0xffFF6B9A)],
+                  ),
+                ),
+                child: const Icon(
+                  Icons.insights_rounded,
+                  color: Colors.white,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                "Notes Info",
+                style: TextStyle(
+                  fontSize: 19,
+                  fontWeight: FontWeight.w900,
+                  color: isDark ? Colors.white : const Color(0xff151225),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          GridView.count(
+            crossAxisCount: 2,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            crossAxisSpacing: 10,
+            mainAxisSpacing: 10,
+            childAspectRatio: 1.5,
+            children: [
+              _infoChip("Total Notes", "$total",
+                  Icons.sticky_note_2_rounded, Colors.blueAccent, isDark),
+              _infoChip("Archived", "$archived", Icons.archive_rounded,
+                  Colors.orange, isDark),
+              _infoChip("Locked", "$locked", Icons.lock_rounded,
+                  Colors.orangeAccent, isDark),
+              _infoChip("Favourites", "$favourite", Icons.favorite_rounded,
+                  Colors.redAccent, isDark),
+              _infoChip("With Reminders", "$withReminder",
+                  Icons.alarm_rounded, const Color(0xff7F5AF0), isDark),
+              _infoChip("With Images", "$withImage", Icons.image_rounded,
+                  const Color(0xff2CB67D), isDark),
+            ],
+          ),
+          const SizedBox(height: 18),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xff7F5AF0),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text(
+                "Close",
+                style: TextStyle(fontWeight: FontWeight.w900),
               ),
             ),
-            onPressed: () => Navigator.pop(context),
-            child: const Text("Close"),
           ),
         ],
       ),
     );
   }
 
-  Widget _infoRow(
+  Widget _infoChip(
       String label,
       String value,
       IconData icon,
-      Color color, {
-        required bool isDark,
-      }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      Color color,
+      bool isDark,
+      ) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withOpacity(isDark ? 0.14 : 0.10),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: color.withOpacity(0.25)),
+      ),
       child: Row(
         children: [
           Container(
-            height: 34,
-            width: 34,
+            height: 32,
+            width: 32,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: color.withOpacity(0.14),
+              color: color.withOpacity(0.18),
             ),
-            child: Icon(icon, color: color, size: 17),
+            child: Icon(icon, color: color, size: 16),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 8),
           Expanded(
-            child: Text(
-              label,
-              style: TextStyle(
-                color: isDark
-                    ? Colors.white70
-                    : Colors.black87,
-                fontWeight: FontWeight.w600,
-                fontSize: 14,
-              ),
-            ),
-          ),
-          Text(
-            value,
-            style: TextStyle(
-              color:
-              isDark ? Colors.white : const Color(0xff151225),
-              fontWeight: FontWeight.w900,
-              fontSize: 16,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  value,
+                  style: TextStyle(
+                    color: isDark ? Colors.white : const Color(0xff151225),
+                    fontWeight: FontWeight.w900,
+                    fontSize: 15,
+                  ),
+                ),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: isDark ? Colors.white60 : Colors.black54,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
             ),
           ),
         ],
       ),
     );
+  }
+
+  Future<T?> _showGlassDialog<T>({
+    required Widget Function(BuildContext dialogContext, bool isDark) builder,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return showDialog<T>(
+      context: context,
+      barrierColor: Colors.black.withOpacity(0.45),
+      builder: (dialogContext) => Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(28),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(22),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? const Color(0xff171928).withOpacity(0.96)
+                      : Colors.white.withOpacity(0.96),
+                  borderRadius: BorderRadius.circular(28),
+                  border: Border.all(color: Colors.white.withOpacity(0.24)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(isDark ? 0.45 : 0.16),
+                      blurRadius: 26,
+                      offset: const Offset(0, 14),
+                    ),
+                  ],
+                ),
+                child: builder(dialogContext, isDark),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _audioPlayer.dispose();
+    super.dispose();
   }
 
   @override
@@ -553,10 +702,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final myApp = MyApp.of(context);
 
     final totalNotes = widget.notes.length;
-    final archivedNotes =
-        widget.notes.where((e) => e.isArchived).length;
-    final lockedNotes =
-        widget.notes.where((e) => e.isLocked).length;
+    final archivedNotes = widget.notes.where((e) => e.isArchived).length;
+    final lockedNotes = widget.notes.where((e) => e.isLocked).length;
 
     return Scaffold(
       body: Container(
@@ -598,16 +745,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             SafeArea(
               child: ListView(
                 physics: const BouncingScrollPhysics(),
-                padding:
-                const EdgeInsets.fromLTRB(16, 10, 16, 24),
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
                 children: [
                   _topBar(isDark),
                   const SizedBox(height: 16),
-                  _profileCard(
-                      isDark, totalNotes, archivedNotes, lockedNotes),
+                  _profileCard(isDark, totalNotes, archivedNotes, lockedNotes),
                   const SizedBox(height: 18),
 
-                  // ── Appearance ──
                   _sectionTitle("Appearance", isDark),
                   _settingSwitch(
                     isDark: isDark,
@@ -630,8 +774,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                   const SizedBox(height: 14),
 
-                  // ── Preferences ──
                   _sectionTitle("Preferences", isDark),
+
                   _settingSwitch(
                     isDark: isDark,
                     icon: Icons.notifications_rounded,
@@ -645,6 +789,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     colorOn: const Color(0xff2CB67D),
                     colorOff: Colors.grey,
                     onChanged: setNotifications,
+                  ),
+                  _settingTile(
+                    isDark: isDark,
+                    icon: Icons.music_note_rounded,
+                    iconColor: Colors.deepPurple,
+                    title: "Notification Sound",
+                    subtitle: alarmSoundName == "default"
+                        ? "📱 Default Phone Sound"
+                        : alarmSoundName!,
+                    onTap: changeNotificationSound,
                   ),
                   _settingTile(
                     isDark: isDark,
@@ -667,10 +821,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ? "No PIN set"
                         : "PIN is set — tap to change",
                     onTap: () async {
-                      if (appPin != null &&
-                          appPin!.isNotEmpty) {
-                        final verified =
-                        await verifyCurrentPin();
+                      if (appPin != null && appPin!.isNotEmpty) {
+                        final verified = await verifyCurrentPin();
                         if (!mounted) return;
                         if (!verified) return;
                       }
@@ -680,7 +832,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                   const SizedBox(height: 14),
 
-                  // ── Notes Management ──
                   _sectionTitle("Notes Management", isDark),
                   _settingTile(
                     isDark: isDark,
@@ -738,7 +889,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                   const SizedBox(height: 14),
 
-                  // ── About ──
                   _sectionTitle("About", isDark),
                   _aboutCard(isDark),
                 ],
@@ -763,9 +913,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           child: Text(
             "Settings",
             style: TextStyle(
-              color: isDark
-                  ? Colors.white
-                  : const Color(0xff151225),
+              color: isDark ? Colors.white : const Color(0xff151225),
               fontSize: 27,
               fontWeight: FontWeight.w900,
             ),
@@ -805,8 +953,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xff7F5AF0)
-                          .withOpacity(0.30),
+                      color: const Color(0xff7F5AF0).withOpacity(0.30),
                       blurRadius: 22,
                       offset: const Offset(0, 10),
                     ),
@@ -821,15 +968,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(width: 16),
               Expanded(
                 child: Column(
-                  crossAxisAlignment:
-                  CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       "VibeNote Control Center",
                       style: TextStyle(
-                        color: isDark
-                            ? Colors.white
-                            : const Color(0xff151225),
+                        color: isDark ? Colors.white : const Color(0xff151225),
                         fontSize: 18,
                         fontWeight: FontWeight.w900,
                       ),
@@ -838,9 +982,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     Text(
                       "Manage notes, privacy & experience",
                       style: TextStyle(
-                        color: isDark
-                            ? Colors.white60
-                            : Colors.black54,
+                        color: isDark ? Colors.white60 : Colors.black54,
                         fontSize: 12,
                       ),
                     ),
@@ -858,7 +1000,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   Icons.archive_rounded, isDark),
               _miniStat("Locked", "$lockedNotes",
                   Icons.lock_rounded, isDark),
-              // ✅ favourite count stat
               _miniStat(
                 "Fav",
                 "${widget.notes.where((n) => n.isFavourite).length}",
@@ -886,15 +1027,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
         child: Column(
           children: [
-            Icon(icon,
-                size: 17, color: const Color(0xff7F5AF0)),
+            Icon(icon, size: 17, color: const Color(0xff7F5AF0)),
             const SizedBox(height: 4),
             Text(
               value,
               style: TextStyle(
-                color: isDark
-                    ? Colors.white
-                    : const Color(0xff151225),
+                color: isDark ? Colors.white : const Color(0xff151225),
                 fontSize: 15,
                 fontWeight: FontWeight.w900,
               ),
@@ -902,9 +1040,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Text(
               label,
               style: TextStyle(
-                color: isDark
-                    ? Colors.white60
-                    : Colors.black54,
+                color: isDark ? Colors.white60 : Colors.black54,
                 fontSize: 10,
               ),
             ),
@@ -946,29 +1082,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return _glassBox(
       isDark: isDark,
       margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.symmetric(
-          horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       child: Row(
         children: [
           _iconBubble(icon, const Color(0xff7F5AF0)),
           const SizedBox(width: 14),
           Expanded(child: _tileTexts(isDark, title, subtitle)),
-          SizedBox(
-            width: 122,
-            child: LiteRollingSwitch(
-              value: value,
-              textOn: textOn,
-              textOff: textOff,
-              colorOn: colorOn,
-              colorOff: colorOff,
-              iconOn: iconOn,
-              iconOff: iconOff,
-              textSize: 12,
-              onChanged: onChanged,
-              onTap: () {},
-              onDoubleTap: () {},
-              onSwipe: () {},
-            ),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                value ? iconOn : iconOff,
+                color: value ? colorOn : colorOff,
+                size: 18,
+              ),
+              const SizedBox(width: 8),
+              Switch(
+                value: value,
+                onChanged: onChanged,
+                activeColor: colorOn,
+                activeTrackColor: colorOn.withOpacity(0.4),
+                inactiveThumbColor: colorOff,
+                inactiveTrackColor: colorOff.withOpacity(0.3),
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ],
           ),
         ],
       ),
@@ -990,15 +1128,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       child: _glassBox(
         isDark: isDark,
         margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.symmetric(
-            horizontal: 14, vertical: 14),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
         child: Row(
           children: [
             _iconBubble(icon, iconColor),
             const SizedBox(width: 14),
             Expanded(
-              child: _tileTexts(isDark, title, subtitle,
-                  danger: danger),
+              child: _tileTexts(isDark, title, subtitle, danger: danger),
             ),
             Icon(
               Icons.arrow_forward_ios_rounded,
@@ -1084,15 +1220,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
-                  crossAxisAlignment:
-                  CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       "VibeNote",
                       style: TextStyle(
-                        color: isDark
-                            ? Colors.white
-                            : const Color(0xff151225),
+                        color: isDark ? Colors.white : const Color(0xff151225),
                         fontSize: 18,
                         fontWeight: FontWeight.w900,
                       ),
@@ -1101,9 +1234,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     Text(
                       "Developer: Mayank Songade\nVersion 1.0.0",
                       style: TextStyle(
-                        color: isDark
-                            ? Colors.white60
-                            : Colors.black54,
+                        color: isDark ? Colors.white60 : Colors.black54,
                         fontSize: 12,
                         height: 1.5,
                       ),
@@ -1114,7 +1245,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ],
           ),
 
-          // ✅feature highlights
           const SizedBox(height: 16),
           Container(
             height: 1,
@@ -1127,18 +1257,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
             spacing: 8,
             runSpacing: 8,
             children: [
-              _featureChip(
-                  "🔒 PIN Lock", isDark),
-              _featureChip(
-                  "🔔 Reminders", isDark),
-              _featureChip(
-                  "🎨 Color Notes", isDark),
-              _featureChip(
-                  "🎤 Voice Note", isDark),
-              _featureChip(
-                  "📸 Image Notes", isDark),
-              _featureChip(
-                  "📁 Archive", isDark),
+              _featureChip("🔒 PIN Lock", isDark),
+              _featureChip("🔔 Reminders", isDark),
+              _featureChip("🎨 Color Notes", isDark),
+              _featureChip("🎤 Voice Note", isDark),
+              _featureChip("📸 Image Notes", isDark),
+              _featureChip("📁 Archive", isDark),
             ],
           ),
         ],
@@ -1148,8 +1272,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _featureChip(String label, bool isDark) {
     return Container(
-      padding: const EdgeInsets.symmetric(
-          horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: isDark
             ? Colors.white.withOpacity(0.08)
@@ -1164,9 +1287,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         style: TextStyle(
           fontSize: 11,
           fontWeight: FontWeight.w700,
-          color: isDark
-              ? Colors.white70
-              : const Color(0xff151225),
+          color: isDark ? Colors.white70 : const Color(0xff151225),
         ),
       ),
     );
@@ -1191,12 +1312,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ? Colors.white.withOpacity(0.08)
                   : Colors.white.withOpacity(0.58),
               borderRadius: BorderRadius.circular(26),
-              border: Border.all(
-                  color: Colors.white.withOpacity(0.25)),
+              border: Border.all(color: Colors.white.withOpacity(0.25)),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black
-                      .withOpacity(isDark ? 0.30 : 0.08),
+                  color: Colors.black.withOpacity(isDark ? 0.30 : 0.08),
                   blurRadius: 24,
                   offset: const Offset(0, 14),
                 ),
@@ -1228,14 +1347,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ? Colors.white.withOpacity(0.08)
                   : Colors.white.withOpacity(0.50),
               borderRadius: BorderRadius.circular(18),
-              border: Border.all(
-                  color: Colors.white.withOpacity(0.20)),
+              border: Border.all(color: Colors.white.withOpacity(0.20)),
             ),
             child: Icon(
               icon,
-              color: isDark
-                  ? Colors.white
-                  : const Color(0xff151225),
+              color: isDark ? Colors.white : const Color(0xff151225),
             ),
           ),
         ),
@@ -1247,8 +1363,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Container(
       height: size,
       width: size,
-      decoration:
-      BoxDecoration(shape: BoxShape.circle, color: color),
+      decoration: BoxDecoration(shape: BoxShape.circle, color: color),
     );
   }
 }

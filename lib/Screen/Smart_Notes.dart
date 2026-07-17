@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:rainbow_edge_lighting/rainbow_edge_lighting.dart';
@@ -39,7 +38,6 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
   List<String> categories = ["All", "Study", "Work", "Personal", "Important"];
   String selectedSort = "Newest First";
 
-  // ✅ search debounce timer
   Timer? _searchDebounce;
 
   @override
@@ -55,10 +53,14 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
         isSearchFocused = searchFocusNode.hasFocus;
       });
     });
+    loadNotes().then((_) {
+      if (!mounted) return;
+    });
 
-    loadNotes();
     NotificationService.onOpenNoteRequest = (noteId) {
-      if (mounted) openNoteFromNotification(noteId);
+      if (mounted) {
+        openNoteFromNotification(noteId);
+      }
     };
   }
 
@@ -90,21 +92,21 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
 
   Future<void> openNoteFromNotification(String noteId) async {
     final index = notes.indexWhere((n) => n.id == noteId);
-
     if (index == -1) {
       showMessage("Note not found.");
       return;
     }
-
     final note = notes[index];
-
     if (note.isLocked) {
-      final ok = await checkPin(note);
+      final ok = await BiometricService.unlockNote(
+        context,
+        note,
+        reason: "Use fingerprint to unlock this note",
+      );
       if (!ok || !mounted) return;
     }
-
     if (!mounted) return;
-
+    _unfocusSearch();
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -129,20 +131,16 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
   Future<void> loadNotes() async {
     final prefs = await SharedPreferences.getInstance();
     final notesJson = prefs.getStringList("notes");
-
     if (notesJson != null) {
       notes = notesJson.map((e) => NoteModel.fromJson(jsonDecode(e))).toList();
     }
-
     if (!mounted) return;
     setState(() {
       sortNotes();
       updateCategories();
       applyFilter();
     });
-    final openId =
-        widget.openNoteId ?? NotificationService.consumePendingOpenNoteId();
-
+    final openId = widget.openNoteId ?? NotificationService.consumePendingOpenNoteId();
     if (openId != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         openNoteFromNotification(openId);
@@ -152,13 +150,9 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
 
   void applyFilter() {
     List<NoteModel> tempNotes = notes.where((n) => !n.isArchived).toList();
-
     if (selectedCategory != "All") {
-      tempNotes = tempNotes
-          .where((n) => n.category == selectedCategory)
-          .toList();
+      tempNotes = tempNotes.where((n) => n.category == selectedCategory).toList();
     }
-
     if (searchController.text.trim().isNotEmpty) {
       final query = searchController.text.toLowerCase().trim();
       tempNotes = tempNotes.where((n) {
@@ -167,35 +161,25 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
             n.category.toLowerCase().contains(query);
       }).toList();
     }
-
     switch (selectedSort) {
       case "Oldest First":
         tempNotes.sort((a, b) => a.createdAt.compareTo(b.createdAt));
         break;
       case "A-Z":
-        tempNotes.sort(
-          (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()),
-        );
+        tempNotes.sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
         break;
       case "Z-A":
-        tempNotes.sort(
-          (a, b) => b.title.toLowerCase().compareTo(a.title.toLowerCase()),
-        );
+        tempNotes.sort((a, b) => b.title.toLowerCase().compareTo(a.title.toLowerCase()));
         break;
       case "Favourite First":
-        tempNotes.sort(
-          (a, b) => (b.isFavourite ? 1 : 0).compareTo(a.isFavourite ? 1 : 0),
-        );
+        tempNotes.sort((a, b) => (b.isFavourite ? 1 : 0).compareTo(a.isFavourite ? 1 : 0));
         break;
       case "Pinned First":
-        tempNotes.sort(
-          (a, b) => (b.isPinned ? 1 : 0).compareTo(a.isPinned ? 1 : 0),
-        );
+        tempNotes.sort((a, b) => (b.isPinned ? 1 : 0).compareTo(a.isPinned ? 1 : 0));
         break;
       default:
         tempNotes.sort((a, b) => b.createdAt.compareTo(a.createdAt));
     }
-
     filteredNotes = tempNotes;
   }
 
@@ -228,48 +212,18 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
     }
   }
 
-  Future<String?> _openPinPage({
-    required String title,
-    required String actionText,
-    String hintText = "Enter 4 digit PIN",
-    bool allowBiometric = true,
-  }) async {
-    final result = await Navigator.of(context).push<String>(
-      PageRouteBuilder(
-        opaque: false,
-        barrierColor: Colors.black.withOpacity(0.45),
-        transitionDuration: const Duration(milliseconds: 220),
-        reverseTransitionDuration: const Duration(milliseconds: 180),
-        pageBuilder: (_, animation, __) {
-          return _PinEntryPage(
-            title: title,
-            actionText: actionText,
-            hintText: hintText,
-            allowBiometric: allowBiometric,
-          );
-        },
-        transitionsBuilder: (_, animation, __, child) {
-          return FadeTransition(
-            opacity: animation,
-            child: ScaleTransition(
-              scale: Tween<double>(begin: 0.96, end: 1).animate(
-                CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
-              ),
-              child: child,
-            ),
-          );
-        },
-      ),
-    );
-    return result;
-  }
-
   void showMessage(String message, {Color color = const Color(0xff7F5AF0)}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message),
+        content: Row(
+          children: [
+            Icon(Icons.check_circle_rounded, color: Colors.white, size: 18),
+            const SizedBox(width: 10),
+            Expanded(child: Text(message, style: const TextStyle(color: Colors.white))),
+          ],
+        ),
         behavior: SnackBarBehavior.floating,
         backgroundColor: color,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
@@ -277,33 +231,15 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
     );
   }
 
-  Future<bool> checkPin(NoteModel note) async {
-    // ✅ Try fingerprint first
-    final bioAvailable = await BiometricService.isFingerprintAvailable();
-    if (bioAvailable) {
-      final result = await BiometricService.authenticate(
-        reason: "Use fingerprint to unlock this note",
-      );
-      if (!mounted) return false;
-      if (result == BiometricResult.success) return true;
-      // If failed/cancelled, fall through to PIN
-    }
+  Future<bool> checkPin(NoteModel note) => BiometricService.unlockNote(
+    context,
+    note,
+    reason: "Use fingerprint to unlock this note",
+  );
 
-    // Fall back to PIN
-    final enteredPin = await _openPinPage(
-      title: "Enter PIN",
-      actionText: "Unlock",
-    );
-
-    if (enteredPin == null) return false;
-
-    // Fingerprint success
-    if (enteredPin == "__biometric__") return true;
-
-    // Normal PIN
-    if (enteredPin == note.pin) return true;
-    showMessage("Wrong PIN. Please try again.", color: Colors.redAccent);
-    return false;
+  void _unfocusSearch() {
+    searchFocusNode.unfocus();
+    FocusManager.instance.primaryFocus?.unfocus();
   }
 
   @override
@@ -317,10 +253,8 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
 
   void showDeleteUndoSnackBar(NoteModel deletedNote, int deletedIndex) {
     if (!mounted) return;
-
     final messenger = ScaffoldMessenger.of(context);
     messenger.clearSnackBars();
-
     messenger.showSnackBar(
       SnackBar(
         duration: const Duration(seconds: 5),
@@ -331,7 +265,6 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
           label: "UNDO",
           onPressed: () {
             messenger.hideCurrentSnackBar();
-
             if (!mounted) return;
             setState(() {
               deletedNote.isArchived = false;
@@ -344,7 +277,6 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
         ),
       ),
     );
-
     Future.delayed(const Duration(seconds: 5), () {
       if (!mounted) return;
       messenger.hideCurrentSnackBar();
@@ -352,6 +284,7 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
   }
 
   Future<void> openAddNote() async {
+    _unfocusSearch();
     final result = await Navigator.push(
       context,
       PageRouteBuilder(
@@ -361,23 +294,18 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
           return FadeTransition(
             opacity: animation,
             child: SlideTransition(
-              position:
-                  Tween<Offset>(
-                    begin: const Offset(0, 0.12),
-                    end: Offset.zero,
-                  ).animate(
-                    CurvedAnimation(
-                      parent: animation,
-                      curve: Curves.easeOutCubic,
-                    ),
-                  ),
+              position: Tween<Offset>(
+                begin: const Offset(0, 0.12),
+                end: Offset.zero,
+              ).animate(
+                CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+              ),
               child: child,
             ),
           );
         },
       ),
     );
-
     if (result != null && mounted) {
       setState(() {
         notes.add(result);
@@ -390,18 +318,16 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
   }
 
   Future<void> openTemplates() async {
+    _unfocusSearch();
     final template = await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const TemplatesScreen()),
     );
-
     if (template == null || !mounted) return;
-
     final result = await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => AddNoteScreen(template: template)),
     );
-
     if (result != null && mounted) {
       setState(() {
         notes.add(result);
@@ -415,20 +341,21 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
 
   Future<void> openEditNote(NoteModel note) async {
     if (note.isLocked) {
-      final isCorrect = await checkPin(note);
+      final isCorrect = await BiometricService.unlockNote(
+        context,
+        note,
+        reason: "Use fingerprint to unlock this note",
+      );
       if (!isCorrect) return;
     }
-
     if (!mounted) return;
-
+    _unfocusSearch();
     final realIndex = notes.indexOf(note);
-
     final updatedNote = await Navigator.push(
       context,
       PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 420),
-        pageBuilder: (_, animation, __) =>
-            AddNoteScreen(editNote: note, editIndex: realIndex),
+        pageBuilder: (_, animation, __) => AddNoteScreen(editNote: note, editIndex: realIndex),
         transitionsBuilder: (_, animation, __, child) {
           return FadeTransition(
             opacity: animation,
@@ -442,7 +369,6 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
         },
       ),
     );
-
     if (updatedNote != null && mounted) {
       setState(() {
         notes[realIndex] = updatedNote;
@@ -456,13 +382,13 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
 
   Future<void> setOrRemovePin(NoteModel note) async {
     if (!note.isLocked) {
-      final pin = await _openPinPage(
+      final pin = await BiometricService.showPinEntry(
+        context,
         title: "Set 4 Digit PIN",
         actionText: "Save",
         allowBiometric: false,
       );
       if (pin == null) return;
-
       if (!mounted) return;
       setState(() {
         note.isLocked = true;
@@ -471,7 +397,11 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
       await saveNotes();
       showMessage("Note locked successfully.", color: const Color(0xff2CB67D));
     } else {
-      final isCorrect = await checkPin(note);
+      final isCorrect = await BiometricService.unlockNote(
+        context,
+        note,
+        reason: "Use fingerprint to unlock this note",
+      );
       if (!mounted) return;
       if (isCorrect) {
         setState(() {
@@ -485,6 +415,7 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
   }
 
   void openFullImage(String imagePath) {
+    _unfocusSearch();
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -506,11 +437,9 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
 
   Future<void> cancelNoteReminder(NoteModel note) async {
     final int notificationId = note.notificationId;
-
     await NotificationService.cancelNotification(notificationId);
   }
 
-  // ✅ permanently delete a note (with notification cancel)
   Future<void> permanentlyDeleteNote(NoteModel note) async {
     await cancelNoteReminder(note);
     if (!mounted) return;
@@ -520,16 +449,12 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
     });
     await saveNotes();
   }
-
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-
     return Scaffold(
       extendBody: true,
-      backgroundColor: isDark
-          ? const Color(0xff090A12)
-          : const Color(0xffF8F5FF),
+      backgroundColor: isDark ? const Color(0xff090A12) : const Color(0xffF8F5FF),
       body: _premiumBackground(
         isDark: isDark,
         child: SafeArea(
@@ -544,25 +469,27 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
               SliverToBoxAdapter(child: _sortRow(isDark)),
               filteredNotes.isEmpty
                   ? SliverFillRemaining(
-                      hasScrollBody: false,
-                      child: _emptyState(isDark),
-                    )
+                hasScrollBody: false,
+                child: _emptyState(isDark),
+              )
                   : SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
-                      sliver: SliverGrid(
-                        gridDelegate:
-                            const SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: 2,
-                              crossAxisSpacing: 14,
-                              mainAxisSpacing: 14,
-                              childAspectRatio: 0.68,
-                            ),
-                        delegate: SliverChildBuilderDelegate((context, index) {
-                          final note = filteredNotes[index];
-                          return _noteDismissible(note, index, isDark);
-                        }, childCount: filteredNotes.length),
-                      ),
-                    ),
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+                sliver: SliverGrid(
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    crossAxisSpacing: 14,
+                    mainAxisSpacing: 14,
+                    childAspectRatio: 0.68,
+                  ),
+                  delegate: SliverChildBuilderDelegate(
+                        (context, index) {
+                      final note = filteredNotes[index];
+                      return _noteDismissible(note, index, isDark);
+                    },
+                    childCount: filteredNotes.length,
+                  ),
+                ),
+              ),
             ],
           ),
         ),
@@ -648,6 +575,7 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
             icon: Icons.favorite_rounded,
             color: Colors.redAccent,
             onTap: () async {
+              _unfocusSearch();
               await Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -655,13 +583,11 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
                     notes: notes,
                     onChanged: () {
                       if (!mounted) return;
-
                       setState(() {
                         sortNotes();
                         updateCategories();
                         applyFilter();
                       });
-
                       saveNotes();
                     },
                   ),
@@ -682,6 +608,7 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
             icon: Icons.settings_rounded,
             color: isDark ? Colors.white : const Color(0xff151225),
             onTap: () {
+              _unfocusSearch();
               Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -721,9 +648,7 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
             height: 44,
             width: 44,
             decoration: BoxDecoration(
-              color: isDark
-                  ? Colors.white.withOpacity(0.08)
-                  : Colors.white.withOpacity(0.62),
+              color: isDark ? Colors.white.withOpacity(0.08) : Colors.white.withOpacity(0.62),
               borderRadius: BorderRadius.circular(18),
               border: Border.all(color: Colors.white.withOpacity(0.25)),
             ),
@@ -737,67 +662,87 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
   Widget _searchBox(bool isDark) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(18, 4, 18, 6),
-      child: RainbowEdgeLighting(
-        enabled: isSearchFocused,
-        radius: 26,
-        child: ClipRRect(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOutCubic,
+        height: isSearchFocused ? 58 : 56,
+        decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(26),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-            child: TextField(
-              focusNode: searchFocusNode,
-              controller: searchController,
-              onChanged: searchNotes,
-              style: TextStyle(
-                color: isDark ? Colors.white : const Color(0xff151225),
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-              ),
-              decoration: InputDecoration(
-                hintText: "Search notes, categories, reminders...",
-                hintStyle: TextStyle(
-                  color: isDark ? Colors.white54 : Colors.black45,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
+          boxShadow: isSearchFocused
+              ? [
+            BoxShadow(
+              color: const Color(0xff7F5AF0).withOpacity(0.2),
+              blurRadius: 20,
+              spreadRadius: 5,
+            ),
+          ]
+              : [],
+        ),
+        child: RainbowEdgeLighting(
+          enabled: isSearchFocused,
+          radius: 26,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(26),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+              child: TextField(
+                focusNode: searchFocusNode,
+                controller: searchController,
+                onChanged: searchNotes,
+                onEditingComplete: _unfocusSearch,
+                onTap: () {
+                  if (!searchFocusNode.hasFocus) {
+                    searchFocusNode.requestFocus();
+                  }
+                },
+                style: TextStyle(
+                  color: isDark ? Colors.white : const Color(0xff151225),
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
                 ),
-                prefixIcon: Icon(
-                  Icons.search_rounded,
-                  color: isDark ? Colors.white70 : const Color(0xff7F5AF0),
-                ),
-                suffixIcon: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 180),
-                  transitionBuilder: (child, animation) =>
-                      ScaleTransition(scale: animation, child: child),
-                  child: searchController.text.isEmpty
-                      ? const SizedBox(key: ValueKey("empty"), width: 0)
-                      : IconButton(
-                          key: const ValueKey("clear"),
-                          icon: Icon(
-                            Icons.close_rounded,
-                            color: isDark ? Colors.white70 : Colors.black54,
-                          ),
-                          onPressed: () {
-                            HapticFeedback.selectionClick();
-                            searchController.clear();
-                            setState(applyFilter);
-                          },
-                        ),
-                ),
-                filled: true,
-                fillColor: isDark
-                    ? Colors.white.withOpacity(0.09)
-                    : Colors.white.withOpacity(0.72),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(26),
-                  borderSide: BorderSide.none,
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(26),
-                  borderSide: BorderSide.none,
-                ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 18,
-                  vertical: 17,
+                decoration: InputDecoration(
+                  hintText: "Search notes, categories, reminders...",
+                  hintStyle: TextStyle(
+                    color: isDark ? Colors.white54 : Colors.black45,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  prefixIcon: Icon(
+                    Icons.search_rounded,
+                    color: isDark ? Colors.white70 : const Color(0xff7F5AF0),
+                  ),
+                  suffixIcon: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 180),
+                    transitionBuilder: (child, animation) =>
+                        ScaleTransition(scale: animation, child: child),
+                    child: searchController.text.isEmpty
+                        ? const SizedBox(key: ValueKey("empty"), width: 0)
+                        : IconButton(
+                      key: const ValueKey("clear"),
+                      icon: Icon(
+                        Icons.close_rounded,
+                        color: isDark ? Colors.white70 : Colors.black54,
+                      ),
+                      onPressed: () {
+                        HapticFeedback.selectionClick();
+                        searchController.clear();
+                        setState(applyFilter);
+                      },
+                    ),
+                  ),
+                  filled: true,
+                  fillColor: isDark
+                      ? Colors.white.withOpacity(0.09)
+                      : Colors.white.withOpacity(0.72),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(26),
+                    borderSide: BorderSide.none,
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(26),
+                    borderSide: BorderSide.none,
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 17),
                 ),
               ),
             ),
@@ -810,45 +755,38 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
   Widget _searchMeta(bool isDark) {
     final hasSearch = searchController.text.trim().isNotEmpty;
     final count = filteredNotes.length;
-
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 250),
       child: hasSearch
           ? Padding(
-              key: ValueKey("search-$count"),
-              padding: const EdgeInsets.fromLTRB(22, 0, 22, 8),
-              child: Row(
-                children: [
-                  Icon(
-                    count == 0
-                        ? Icons.search_off_rounded
-                        : Icons.manage_search_rounded,
-                    size: 16,
-                    color: count == 0
-                        ? Colors.redAccent
-                        : const Color(0xff7F5AF0),
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    count == 0
-                        ? "Nothing matched your vibe"
-                        : "$count note${count > 1 ? 's' : ''} found",
-                    style: TextStyle(
-                      color: isDark ? Colors.white60 : Colors.black54,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ],
+        key: ValueKey("search-$count"),
+        padding: const EdgeInsets.fromLTRB(22, 0, 22, 8),
+        child: Row(
+          children: [
+            Icon(
+              count == 0 ? Icons.search_off_rounded : Icons.manage_search_rounded,
+              size: 16,
+              color: count == 0 ? Colors.redAccent : const Color(0xff7F5AF0),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              count == 0 ? "Nothing matched your vibe" : "$count note${count > 1 ? 's' : ''} found",
+              style: TextStyle(
+                color: isDark ? Colors.white60 : Colors.black54,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
               ),
-            )
+            ),
+          ],
+        ),
+      )
           : const SizedBox(key: ValueKey("no-search"), height: 0),
     );
   }
 
   Widget _categoryList(bool isDark) {
     return SizedBox(
-      height: 48,
+      height: 50,
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         physics: const BouncingScrollPhysics(),
@@ -860,7 +798,7 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
 
           return Padding(
             padding: const EdgeInsets.only(right: 10),
-            child: GestureDetector(
+            child: _TapScaleCard(
               onTap: () {
                 HapticFeedback.selectionClick();
                 setState(() {
@@ -868,62 +806,74 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
                   applyFilter();
                 });
               },
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 250),
-                curve: Curves.easeOutCubic,
-                padding: const EdgeInsets.symmetric(horizontal: 18),
-                decoration: BoxDecoration(
-                  gradient: isSelected
-                      ? const LinearGradient(
-                          colors: [Color(0xff7F5AF0), Color(0xffFF6B9A)],
-                        )
-                      : null,
-                  color: isSelected
-                      ? null
-                      : (isDark
-                            ? Colors.white.withOpacity(0.08)
-                            : Colors.white.withOpacity(0.66)),
-                  borderRadius: BorderRadius.circular(22),
-                  border: Border.all(
+              child: TweenAnimationBuilder<double>(
+                key: ValueKey("cat-$category-$isSelected"),
+                tween: Tween<double>(begin: isSelected ? 0.85 : 1.0, end: 1.0),
+                duration: const Duration(milliseconds: 450),
+                curve: Curves.elasticOut,
+                builder: (context, bounce, child) {
+                  return Transform.scale(scale: bounce, child: child);
+                },
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 320),
+                  curve: Curves.easeOutBack,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    gradient: isSelected
+                        ? const LinearGradient(
+                      colors: [Color(0xff7F5AF0), Color(0xffFF6B9A)],
+                    )
+                        : null,
                     color: isSelected
-                        ? Colors.transparent
-                        : Colors.white.withOpacity(0.25),
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: isSelected
-                          ? const Color(0xff7F5AF0).withOpacity(0.28)
-                          : Colors.transparent,
-                      blurRadius: isSelected ? 16 : 0,
-                      offset: isSelected ? const Offset(0, 8) : Offset.zero,
+                        ? null
+                        : (isDark
+                        ? Colors.white.withOpacity(0.08)
+                        : Colors.white.withOpacity(0.66)),
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(
+                      color: isSelected ? Colors.transparent : Colors.white.withOpacity(0.25),
                     ),
-                  ],
-                ),
-                alignment: Alignment.center,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      categoryIcon(category),
-                      size: 16,
-                      color: isSelected
-                          ? Colors.white
-                          : (isDark ? Colors.white70 : const Color(0xff7F5AF0)),
-                    ),
-                    const SizedBox(width: 7),
-                    Text(
-                      category,
-                      style: TextStyle(
+                    boxShadow: [
+                      BoxShadow(
                         color: isSelected
-                            ? Colors.white
-                            : (isDark
-                                  ? Colors.white70
-                                  : const Color(0xff151225)),
-                        fontWeight: FontWeight.w800,
-                        fontSize: 13,
+                            ? const Color(0xff7F5AF0).withOpacity(0.30)
+                            : Colors.transparent,
+                        blurRadius: isSelected ? 18 : 0,
+                        spreadRadius: isSelected ? 1 : 0,
+                        offset: isSelected ? const Offset(0, 8) : Offset.zero,
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
+                  alignment: Alignment.center,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      AnimatedRotation(
+                        turns: isSelected ? 0.02 : 0.0,
+                        duration: const Duration(milliseconds: 320),
+                        curve: Curves.easeOutBack,
+                        child: Icon(
+                          categoryIcon(category),
+                          size: isSelected ? 17 : 16,
+                          color: isSelected
+                              ? Colors.white
+                              : (isDark ? Colors.white70 : const Color(0xff7F5AF0)),
+                        ),
+                      ),
+                      const SizedBox(width: 7),
+                      AnimatedDefaultTextStyle(
+                        duration: const Duration(milliseconds: 250),
+                        style: TextStyle(
+                          color: isSelected
+                              ? Colors.white
+                              : (isDark ? Colors.white70 : const Color(0xff151225)),
+                          fontWeight: FontWeight.w800,
+                          fontSize: isSelected ? 13.5 : 13,
+                        ),
+                        child: Text(category),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -948,9 +898,7 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
             decoration: BoxDecoration(
-              color: isDark
-                  ? Colors.white.withOpacity(0.08)
-                  : Colors.white.withOpacity(0.58),
+              color: isDark ? Colors.white.withOpacity(0.08) : Colors.white.withOpacity(0.58),
               borderRadius: BorderRadius.circular(28),
               border: Border.all(color: Colors.white.withOpacity(0.25)),
               boxShadow: [
@@ -963,37 +911,13 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
             ),
             child: Row(
               children: [
-                _statItem(
-                  isDark,
-                  Icons.sticky_note_2_rounded,
-                  Colors.blueAccent,
-                  "Total",
-                  activeNotes,
-                ),
+                _statItem(isDark, Icons.sticky_note_2_rounded, Colors.blueAccent, "Total", activeNotes),
                 _divider(isDark),
-                _statItem(
-                  isDark,
-                  Icons.lock_rounded,
-                  Colors.orangeAccent,
-                  "Locked",
-                  lockedNotes,
-                ),
+                _statItem(isDark, Icons.lock_rounded, Colors.orangeAccent, "Locked", lockedNotes),
                 _divider(isDark),
-                _statItem(
-                  isDark,
-                  Icons.favorite_rounded,
-                  Colors.redAccent,
-                  "Fav",
-                  favNotes,
-                ),
+                _statItem(isDark, Icons.favorite_rounded, Colors.redAccent, "Fav", favNotes),
                 _divider(isDark),
-                _statItem(
-                  isDark,
-                  Icons.alarm_rounded,
-                  Colors.deepPurpleAccent,
-                  "Reminders",
-                  reminderNotes,
-                ),
+                _statItem(isDark, Icons.alarm_rounded, Colors.deepPurpleAccent, "Reminders", reminderNotes),
               ],
             ),
           ),
@@ -1002,13 +926,7 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
     );
   }
 
-  Widget _statItem(
-    bool isDark,
-    IconData icon,
-    Color color,
-    String label,
-    int count,
-  ) {
+  Widget _statItem(bool isDark, IconData icon, Color color, String label, int count) {
     return Expanded(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1023,14 +941,21 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
             child: Icon(icon, color: color, size: 19),
           ),
           const SizedBox(height: 6),
-          Text(
-            "$count",
-            style: TextStyle(
-              color: isDark ? Colors.white : const Color(0xff151225),
-              fontSize: 18,
-              fontWeight: FontWeight.w900,
-              letterSpacing: -0.3,
-            ),
+          TweenAnimationBuilder<int>(
+            tween: IntTween(begin: 0, end: count),
+            duration: const Duration(milliseconds: 500),
+            curve: Curves.easeOutCubic,
+            builder: (context, value, child) {
+              return Text(
+                "$value",
+                style: TextStyle(
+                  color: isDark ? Colors.white : const Color(0xff151225),
+                  fontSize: 18,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.3,
+                ),
+              );
+            },
           ),
           Text(
             label,
@@ -1049,9 +974,7 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
     return Container(
       height: 45,
       width: 1,
-      color: isDark
-          ? Colors.white.withOpacity(0.08)
-          : Colors.black.withOpacity(0.06),
+      color: isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.06),
     );
   }
 
@@ -1065,9 +988,7 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             decoration: BoxDecoration(
-              color: isDark
-                  ? Colors.white.withOpacity(0.08)
-                  : Colors.white.withOpacity(0.60),
+              color: isDark ? Colors.white.withOpacity(0.08) : Colors.white.withOpacity(0.60),
               borderRadius: BorderRadius.circular(24),
               border: Border.all(color: Colors.white.withOpacity(0.20)),
             ),
@@ -1082,11 +1003,7 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
                       colors: [Color(0xff7F5AF0), Color(0xffFF6B9A)],
                     ),
                   ),
-                  child: const Icon(
-                    Icons.sort_rounded,
-                    color: Colors.white,
-                    size: 22,
-                  ),
+                  child: const Icon(Icons.sort_rounded, color: Colors.white, size: 22),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -1096,9 +1013,7 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
                       Text(
                         "Sort Notes",
                         style: TextStyle(
-                          color: isDark
-                              ? Colors.white
-                              : const Color(0xff151225),
+                          color: isDark ? Colors.white : const Color(0xff151225),
                           fontWeight: FontWeight.w800,
                           fontSize: 14,
                         ),
@@ -1119,34 +1034,87 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(18),
                   ),
-                  icon: Icon(
-                    Icons.tune_rounded,
-                    color: isDark ? Colors.white70 : const Color(0xff151225),
+                  elevation: 8,
+                  offset: const Offset(0, 10),
+                  icon: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: isDark ? Colors.white.withOpacity(0.08) : Colors.white.withOpacity(0.30),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      Icons.tune_rounded,
+                      color: isDark ? Colors.white70 : const Color(0xff151225),
+                      size: 22,
+                    ),
                   ),
                   onSelected: (value) {
+                    HapticFeedback.selectionClick();
                     setState(() {
                       selectedSort = value;
                       applyFilter();
                     });
                   },
-                  itemBuilder: (context) => const [
-                    PopupMenuItem(
+                  itemBuilder: (context) => [
+                    const PopupMenuItem(
                       value: "Newest First",
-                      child: Text("🕒 Newest First"),
+                      child: Row(
+                        children: [
+                          Icon(Icons.access_time_rounded, size: 18, color: Color(0xff7F5AF0)),
+                          SizedBox(width: 10),
+                          Text("Newest First"),
+                        ],
+                      ),
                     ),
-                    PopupMenuItem(
+                    const PopupMenuItem(
                       value: "Oldest First",
-                      child: Text("📜 Oldest First"),
+                      child: Row(
+                        children: [
+                          Icon(Icons.history_rounded, size: 18, color: Color(0xff7F5AF0)),
+                          SizedBox(width: 10),
+                          Text("Oldest First"),
+                        ],
+                      ),
                     ),
-                    PopupMenuItem(value: "A-Z", child: Text("🔤 A-Z")),
-                    PopupMenuItem(value: "Z-A", child: Text("🔠 Z-A")),
-                    PopupMenuItem(
+                    const PopupMenuItem(
+                      value: "A-Z",
+                      child: Row(
+                        children: [
+                          Icon(Icons.sort_by_alpha_rounded, size: 18, color: Color(0xff7F5AF0)),
+                          SizedBox(width: 10),
+                          Text("A-Z"),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: "Z-A",
+                      child: Row(
+                        children: [
+                          Icon(Icons.sort_by_alpha_rounded, size: 18, color: Color(0xffFF6B9A)),
+                          SizedBox(width: 10),
+                          Text("Z-A"),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
                       value: "Favourite First",
-                      child: Text("❤️ Favourite First"),
+                      child: Row(
+                        children: [
+                          Icon(Icons.favorite_rounded, size: 18, color: Colors.redAccent),
+                          SizedBox(width: 10),
+                          Text("Favourite First"),
+                        ],
+                      ),
                     ),
-                    PopupMenuItem(
+                    const PopupMenuItem(
                       value: "Pinned First",
-                      child: Text("📌 Pinned First"),
+                      child: Row(
+                        children: [
+                          Icon(Icons.push_pin_rounded, size: 18, color: Color(0xff7F5AF0)),
+                          SizedBox(width: 10),
+                          Text("Pinned First"),
+                        ],
+                      ),
                     ),
                   ],
                 ),
@@ -1160,7 +1128,6 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
 
   Widget _emptyState(bool isDark) {
     final hasSearch = searchController.text.trim().isNotEmpty;
-
     return Padding(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -1170,8 +1137,7 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
             tween: Tween(begin: 0.92, end: 1),
             duration: const Duration(seconds: 2),
             curve: Curves.easeInOut,
-            builder: (context, value, child) =>
-                Transform.scale(scale: value, child: child),
+            builder: (context, value, child) => Transform.scale(scale: value, child: child),
             child: Image.asset(
               "assets/Vibe_note_illustration_1.png",
               height: 240,
@@ -1209,13 +1175,8 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xff7F5AF0),
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 22,
-                  vertical: 14,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(18),
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
               ),
             ),
           ],
@@ -1230,9 +1191,12 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
       direction: DismissDirection.horizontal,
       confirmDismiss: (direction) async {
         if (direction == DismissDirection.startToEnd) {
-          // Swipe right = toggle favourite
           if (note.isLocked) {
-            final isCorrect = await checkPin(note);
+            final isCorrect = await BiometricService.unlockNote(
+              context,
+              note,
+              reason: "Use fingerprint to unlock this note",
+            );
             if (!isCorrect) return false;
           }
           HapticFeedback.mediumImpact();
@@ -1243,17 +1207,17 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
           });
           await saveNotes();
           showMessage(
-            note.isFavourite
-                ? "Added to favourites ❤️"
-                : "Removed from favourites",
+            note.isFavourite ? "Added to favourites ❤️" : "Removed from favourites",
             color: note.isFavourite ? Colors.redAccent : Colors.blueGrey,
           );
           return false;
         }
-
-        // Swipe left = archive
         if (note.isLocked) {
-          return await checkPin(note);
+          return await BiometricService.unlockNote(
+            context,
+            note,
+            reason: "Use fingerprint to unlock this note",
+          );
         }
         return true;
       },
@@ -1276,11 +1240,7 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
           ),
           borderRadius: BorderRadius.circular(28),
         ),
-        child: const Icon(
-          Icons.favorite_rounded,
-          color: Colors.white,
-          size: 28,
-        ),
+        child: const Icon(Icons.favorite_rounded, color: Colors.white, size: 28),
       ),
       secondaryBackground: Container(
         alignment: Alignment.centerRight,
@@ -1302,10 +1262,15 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
           onTap: () async {
             HapticFeedback.selectionClick();
             if (note.isLocked) {
-              final isCorrect = await checkPin(note);
+              final isCorrect = await BiometricService.unlockNote(
+                context,
+                note,
+                reason: "Use fingerprint to unlock this note",
+              );
               if (!isCorrect) return;
             }
             if (!mounted) return;
+            _unfocusSearch();
             Navigator.push(
               context,
               MaterialPageRoute(
@@ -1326,7 +1291,6 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
     );
   }
 
-  // ✅ long press options bottom sheet
   void _showNoteOptions(NoteModel note, bool isDark) {
     showModalBottomSheet(
       context: context,
@@ -1342,8 +1306,9 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
                 color: isDark
                     ? const Color(0xff151225).withOpacity(0.96)
                     : Colors.white.withOpacity(0.96),
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(28),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+                border: Border(
+                  top: BorderSide(color: Colors.white.withOpacity(0.20)),
                 ),
               ),
               child: Column(
@@ -1360,7 +1325,7 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
                   ),
                   Text(
                     note.isLocked
-                        ? "Locked Note"
+                        ? "🔒 Locked Note"
                         : (note.title.isEmpty ? "Untitled" : note.title),
                     style: TextStyle(
                       fontWeight: FontWeight.w900,
@@ -1383,19 +1348,19 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
                   ),
                   _optionTile(
                     isDark: isDark,
-                    icon: note.isPinned
-                        ? Icons.push_pin_rounded
-                        : Icons.push_pin_outlined,
+                    icon: note.isPinned ? Icons.push_pin_rounded : Icons.push_pin_outlined,
                     color: Colors.blueAccent,
                     label: note.isPinned ? "Unpin Note" : "Pin Note",
                     onTap: () async {
                       Navigator.pop(context);
-
                       if (note.isLocked) {
-                        final ok = await checkPin(note);
+                        final ok = await BiometricService.unlockNote(
+                          context,
+                          note,
+                          reason: "Use fingerprint to unlock this note",
+                        );
                         if (!ok || !mounted) return;
                       }
-
                       setState(() {
                         note.isPinned = !note.isPinned;
                         sortNotes();
@@ -1406,21 +1371,19 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
                   ),
                   _optionTile(
                     isDark: isDark,
-                    icon: note.isFavourite
-                        ? Icons.favorite_rounded
-                        : Icons.favorite_border_rounded,
+                    icon: note.isFavourite ? Icons.favorite_rounded : Icons.favorite_border_rounded,
                     color: Colors.redAccent,
-                    label: note.isFavourite
-                        ? "Remove Favourite"
-                        : "Add to Favourite",
+                    label: note.isFavourite ? "Remove Favourite" : "Add to Favourite",
                     onTap: () async {
                       Navigator.pop(context);
-
                       if (note.isLocked) {
-                        final ok = await checkPin(note);
+                        final ok = await BiometricService.unlockNote(
+                          context,
+                          note,
+                          reason: "Use fingerprint to unlock this note",
+                        );
                         if (!ok || !mounted) return;
                       }
-
                       setState(() {
                         note.isFavourite = !note.isFavourite;
                         applyFilter();
@@ -1430,9 +1393,7 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
                   ),
                   _optionTile(
                     isDark: isDark,
-                    icon: note.isLocked
-                        ? Icons.lock_open_rounded
-                        : Icons.lock_rounded,
+                    icon: note.isLocked ? Icons.lock_open_rounded : Icons.lock_rounded,
                     color: Colors.orangeAccent,
                     label: note.isLocked ? "Unlock Note" : "Lock Note",
                     onTap: () {
@@ -1447,26 +1408,25 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
                     label: "Archive Note",
                     onTap: () async {
                       Navigator.pop(context);
-
                       if (note.isLocked) {
-                        final ok = await checkPin(note);
+                        final ok = await BiometricService.unlockNote(
+                          context,
+                          note,
+                          reason: "Use fingerprint to unlock this note",
+                        );
                         if (!ok || !mounted) return;
                       }
-
                       final deletedIndex = notes.indexOf(note);
                       await cancelNoteReminder(note);
                       if (!mounted) return;
-
                       setState(() {
                         note.isArchived = true;
                         applyFilter();
                       });
-
                       await saveNotes();
                       showDeleteUndoSnackBar(note, deletedIndex);
                     },
                   ),
-                  // ✅ permanent delete option
                   _optionTile(
                     isDark: isDark,
                     icon: Icons.delete_forever_rounded,
@@ -1474,18 +1434,18 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
                     label: "Delete Permanently",
                     onTap: () async {
                       Navigator.pop(context);
-
                       if (note.isLocked) {
-                        final ok = await checkPin(note);
+                        final ok = await BiometricService.unlockNote(
+                          context,
+                          note,
+                          reason: "Use fingerprint to unlock this note",
+                        );
                         if (!ok || !mounted) return;
                       }
-
                       final confirm = await showDialog<bool>(
                         context: context,
                         builder: (_) => AlertDialog(
-                          backgroundColor: isDark
-                              ? const Color(0xff151225)
-                              : Colors.white,
+                          backgroundColor: isDark ? const Color(0xff151225) : Colors.white,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(22),
                           ),
@@ -1509,13 +1469,9 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
                           ],
                         ),
                       );
-
                       if (confirm == true) {
                         await permanentlyDeleteNote(note);
-                        showMessage(
-                          "Note deleted permanently",
-                          color: Colors.redAccent,
-                        );
+                        showMessage("Note deleted permanently", color: Colors.redAccent);
                       }
                     },
                   ),
@@ -1564,37 +1520,42 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
 
   Widget _noteCard(NoteModel note, bool isDark) {
     final cardColor = note.color;
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(28),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-        child: Container(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                cardColor.withOpacity(isDark ? 0.46 : 0.68),
-                cardColor.withOpacity(isDark ? 0.24 : 0.38),
-              ],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(28),
-            border: Border.all(color: Colors.white.withOpacity(0.25)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(isDark ? 0.30 : 0.10),
-                blurRadius: 18,
-                offset: const Offset(0, 10),
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.92, end: 1.0),
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOutCubic,
+      builder: (context, scale, child) {
+        return Transform.scale(scale: scale, child: child);
+      },
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(28),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  cardColor.withOpacity(isDark ? 0.46 : 0.68),
+                  cardColor.withOpacity(isDark ? 0.24 : 0.38),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
-            ],
-          ),
-          child: ClipRect(
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: note.isLocked
-                  ? _lockedCard(note, isDark)
-                  : _normalCard(note, isDark),
+              borderRadius: BorderRadius.circular(28),
+              border: Border.all(color: Colors.white.withOpacity(0.25)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(isDark ? 0.30 : 0.10),
+                  blurRadius: 18,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: ClipRect(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: note.isLocked ? _lockedCard(note, isDark) : _normalCard(note, isDark),
+              ),
             ),
           ),
         ),
@@ -1612,9 +1573,7 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
               filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
               child: Container(
                 decoration: BoxDecoration(
-                  color: isDark
-                      ? Colors.black.withOpacity(0.18)
-                      : Colors.white.withOpacity(0.22),
+                  color: isDark ? Colors.black.withOpacity(0.18) : Colors.white.withOpacity(0.22),
                   borderRadius: BorderRadius.circular(24),
                 ),
               ),
@@ -1625,46 +1584,62 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Container(
-                height: 66,
-                width: 66,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: const LinearGradient(
-                    colors: [Color(0xff7F5AF0), Color(0xffFF6B9A)],
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xff7F5AF0).withOpacity(0.32),
-                      blurRadius: 20,
-                      offset: const Offset(0, 10),
+              TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0.8, end: 1.0),
+                duration: const Duration(milliseconds: 400),
+                curve: Curves.elasticOut,
+                builder: (context, scale, child) {
+                  return Transform.scale(scale: scale, child: child);
+                },
+                child: Container(
+                  height: 60,
+                  width: 60,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: const LinearGradient(
+                      colors: [Color(0xff7F5AF0), Color(0xffFF6B9A)],
                     ),
-                  ],
-                ),
-                child: const Icon(
-                  Icons.lock_rounded,
-                  size: 34,
-                  color: Colors.white,
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xff7F5AF0).withOpacity(0.32),
+                        blurRadius: 20,
+                        offset: const Offset(0, 10),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.lock_rounded,
+                    size: 30,
+                    color: Colors.white,
+                  ),
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
               Text(
-                "Private Note",
+                "🔒 Private Note",
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontSize: 15,
+                  fontSize: 14,
                   fontWeight: FontWeight.w900,
                   color: isDark ? Colors.white : const Color(0xff151225),
+                  letterSpacing: 0.5,
                 ),
               ),
               const SizedBox(height: 4),
-              Text(
-                "Tap to unlock",
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 11,
-                  color: isDark ? Colors.white60 : Colors.black54,
-                  fontWeight: FontWeight.w700,
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0xff7F5AF0).withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  "Tap to unlock",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: isDark ? Colors.white70 : const Color(0xff7F5AF0),
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             ],
@@ -1678,6 +1653,7 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
             icon: Icons.lock_open_rounded,
             color: Colors.orangeAccent,
             onTap: () => setOrRemovePin(note),
+            size: 26,
           ),
         ),
       ],
@@ -1706,12 +1682,8 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
             ),
             _miniIconButton(
               isDark: isDark,
-              icon: note.isPinned
-                  ? Icons.push_pin_rounded
-                  : Icons.push_pin_outlined,
-              color: note.isPinned
-                  ? const Color(0xff7F5AF0)
-                  : (isDark ? Colors.white : const Color(0xff151225)),
+              icon: note.isPinned ? Icons.push_pin_rounded : Icons.push_pin_outlined,
+              color: note.isPinned ? const Color(0xff7F5AF0) : (isDark ? Colors.white : const Color(0xff151225)),
               onTap: () {
                 HapticFeedback.selectionClick();
                 setState(() {
@@ -1721,6 +1693,7 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
                 });
                 saveNotes();
               },
+              size: 26,
             ),
           ],
         ),
@@ -1789,8 +1762,9 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
                   height: 70,
                   cacheWidth: 600,
                   filterQuality: FilterQuality.low,
-                  errorBuilder: (_, __, ___) =>
-                      const Center(child: Icon(Icons.broken_image_rounded)),
+                  errorBuilder: (_, __, ___) => const Center(
+                    child: Icon(Icons.broken_image_rounded),
+                  ),
                 ),
               ),
             ),
@@ -1799,36 +1773,32 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
         const SizedBox(height: 6),
         if (note.imagePath == null)
           Expanded(
-            child: SingleChildScrollView(
-              physics: const NeverScrollableScrollPhysics(),
-              child: Text(
-                note.note.isEmpty ? "No content added." : note.note,
-                style: TextStyle(
-                  fontSize: 12,
-                  height: 1.3,
-                  color: isDark ? Colors.white70 : Colors.black87,
-                  fontWeight: FontWeight.w600,
-                ),
+            child: Text(
+              note.note.isEmpty ? "No content added." : note.note,
+              maxLines: 4,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 12,
+                height: 1.4,
+                fontWeight: FontWeight.w500,
+                color: isDark ? Colors.white70 : Colors.black87,
               ),
             ),
           )
         else
           const Spacer(),
-        const SizedBox(height: 6),
+        const SizedBox(height: 8),
         Row(
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
             _miniIconButton(
               isDark: isDark,
-              icon: note.isLocked
-                  ? Icons.lock_rounded
-                  : Icons.lock_open_rounded,
-              color: note.isLocked
-                  ? Colors.orangeAccent
-                  : (isDark ? Colors.white : const Color(0xff151225)),
+              icon: note.isLocked ? Icons.lock_rounded : Icons.lock_open_rounded,
+              color: note.isLocked ? Colors.orangeAccent : (isDark ? Colors.white : const Color(0xff151225)),
               onTap: () => setOrRemovePin(note),
+              size: 26,
             ),
-            const SizedBox(width: 7),
+            const SizedBox(width: 14),
             _favoriteIconButton(note, isDark),
           ],
         ),
@@ -1840,9 +1810,7 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
     final reminderTime = note.reminderTime!;
     final diff = reminderTime.difference(DateTime.now());
     final isExpired = diff.isNegative;
-    final reminderColor = isExpired
-        ? Colors.redAccent
-        : const Color(0xff7F5AF0);
+    final reminderColor = isExpired ? Colors.redAccent : const Color(0xff7F5AF0);
 
     final textStyle = TextStyle(
       fontSize: 10.5,
@@ -1875,36 +1843,55 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
           Expanded(
             child: isExpired
                 ? Text(
-                    "Reminder Passed",
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: textStyle,
-                  )
+              "Reminder Passed",
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 10.5,
+                color: isDark ? Colors.white70 : const Color(0xff151225),
+                fontWeight: FontWeight.w900,
+              ),
+            )
                 : FittedBox(
-                    alignment: Alignment.centerLeft,
-                    fit: BoxFit.scaleDown,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        SlideCountdownSeparated(
-                          key: ValueKey(reminderTime.millisecondsSinceEpoch),
-                          duration: diff,
-                          separatorType: SeparatorType.symbol,
-                          shouldShowDays: (d) => d.inDays > 0,
-                          shouldShowHours: (d) => d.inHours > 0,
-                          shouldShowMinutes: (d) => d.inMinutes > 0,
-                          shouldShowSeconds: (d) => d.inHours < 1,
-                          style: textStyle,
-                          separatorStyle: textStyle,
-                          decoration: const BoxDecoration(
-                            color: Colors.transparent,
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        Text("left", style: textStyle),
-                      ],
+              alignment: Alignment.centerLeft,
+              fit: BoxFit.scaleDown,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SlideCountdownSeparated(
+                    key: ValueKey(reminderTime.millisecondsSinceEpoch),
+                    duration: diff,
+                    separatorType: SeparatorType.symbol,
+                    shouldShowDays: (d) => d.inDays > 0,
+                    shouldShowHours: (d) => d.inHours > 0,
+                    shouldShowMinutes: (d) => d.inMinutes > 0,
+                    shouldShowSeconds: (d) => d.inHours < 1,
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      color: isDark ? Colors.white70 : const Color(0xff151225),
+                      fontWeight: FontWeight.w900,
+                    ),
+                    separatorStyle: TextStyle(
+                      fontSize: 10.5,
+                      color: isDark ? Colors.white70 : const Color(0xff151225),
+                      fontWeight: FontWeight.w900,
+                    ),
+                    decoration: const BoxDecoration(
+                      color: Colors.transparent,
                     ),
                   ),
+                  const SizedBox(width: 4),
+                  Text(
+                    "left",
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      color: isDark ? Colors.white70 : const Color(0xff151225),
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ],
       ),
@@ -1920,29 +1907,34 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
         });
         saveNotes();
       },
-      child: Container(
-        height: 30,
-        width: 30,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: isDark
-              ? Colors.white.withOpacity(0.10)
-              : Colors.white.withOpacity(0.50),
-          border: Border.all(color: Colors.white.withOpacity(0.25)),
-        ),
-        child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 260),
-          transitionBuilder: (child, animation) =>
-              ScaleTransition(scale: animation, child: child),
-          child: Icon(
-            note.isFavourite
-                ? Icons.favorite_rounded
-                : Icons.favorite_border_rounded,
-            key: ValueKey(note.isFavourite),
-            size: 16,
-            color: note.isFavourite
-                ? Colors.redAccent
-                : (isDark ? Colors.white : const Color(0xff151225)),
+      child: TweenAnimationBuilder<double>(
+        tween: Tween(begin: 1.0, end: 1.4),
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.elasticOut,
+        builder: (context, scale, child) {
+          return Transform.scale(
+            scale: scale,
+            child: child,
+          );
+        },
+        child: Container(
+          height: 26,
+          width: 26,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: isDark ? Colors.white.withOpacity(0.10) : Colors.white.withOpacity(0.50),
+            border: Border.all(color: Colors.white.withOpacity(0.25)),
+          ),
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 260),
+            transitionBuilder: (child, animation) =>
+                ScaleTransition(scale: animation, child: child),
+            child: Icon(
+              note.isFavourite ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+              key: ValueKey(note.isFavourite),
+              size: 14,
+              color: note.isFavourite ? Colors.redAccent : (isDark ? Colors.white : const Color(0xff151225)),
+            ),
           ),
         ),
       ),
@@ -1954,20 +1946,33 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
     required IconData icon,
     required Color color,
     required VoidCallback onTap,
+    double size = 26,
   }) {
     return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        height: 30,
-        width: 30,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: isDark
-              ? Colors.white.withOpacity(0.10)
-              : Colors.white.withOpacity(0.50),
-          border: Border.all(color: Colors.white.withOpacity(0.25)),
+      onTap: () {
+        HapticFeedback.lightImpact();
+        onTap();
+      },
+      child: TweenAnimationBuilder<double>(
+        tween: Tween(begin: 1.0, end: 1.3),
+        duration: const Duration(milliseconds: 150),
+        curve: Curves.easeOutCubic,
+        builder: (context, scale, child) {
+          return Transform.scale(
+            scale: scale,
+            child: child,
+          );
+        },
+        child: Container(
+          height: size,
+          width: size,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: isDark ? Colors.white.withOpacity(0.10) : Colors.white.withOpacity(0.50),
+            border: Border.all(color: Colors.white.withOpacity(0.25)),
+          ),
+          child: Icon(icon, size: 14, color: color),
         ),
-        child: Icon(icon, size: 16, color: color),
       ),
     );
   }
@@ -1976,48 +1981,64 @@ class _HomeScreenState extends State<MyApp2> with WidgetsBindingObserver {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        FloatingActionButton(
-          heroTag: "templateFab",
-          mini: true,
-          backgroundColor: const Color(0xff2CB67D),
-          onPressed: openTemplates,
-          child: const Icon(Icons.description_rounded, color: Colors.white),
-        ),
-
-        const SizedBox(height: 10),
-
-        Container(
-          height: 66,
-          width: 66,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: const LinearGradient(
-              colors: [Color(0xff7F5AF0), Color(0xffFF6B9A)],
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xff7F5AF0).withOpacity(0.40),
-                blurRadius: 24,
-                offset: const Offset(0, 12),
-              ),
-            ],
-          ),
+        TweenAnimationBuilder<double>(
+          tween: Tween(begin: 0.0, end: 1.0),
+          duration: const Duration(milliseconds: 400),
+          curve: Curves.easeOutCubic,
+          builder: (context, value, child) {
+            return Transform.scale(
+              scale: 0.5 + (0.5 * value),
+              child: child,
+            );
+          },
           child: FloatingActionButton(
-            heroTag: "addNoteFab",
-            elevation: 0,
-            backgroundColor: Colors.transparent,
-            onPressed: openAddNote,
-            child: const Icon(Icons.add_rounded, color: Colors.white, size: 34),
+            heroTag: "templateFab",
+            mini: true,
+            backgroundColor: const Color(0xff2CB67D),
+            onPressed: openTemplates,
+            child: const Icon(Icons.description_rounded, color: Colors.white),
+          ),
+        ),
+        const SizedBox(height: 10),
+        TweenAnimationBuilder<double>(
+          tween: Tween(begin: 0.0, end: 1.0),
+          duration: const Duration(milliseconds: 500),
+          curve: Curves.easeOutCubic,
+          builder: (context, value, child) {
+            return Transform.scale(
+              scale: 0.6 + (0.4 * value),
+              child: child,
+            );
+          },
+          child: Container(
+            height: 66,
+            width: 66,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: const LinearGradient(
+                colors: [Color(0xff7F5AF0), Color(0xffFF6B9A)],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xff7F5AF0).withOpacity(0.40),
+                  blurRadius: 24,
+                  offset: const Offset(0, 12),
+                ),
+              ],
+            ),
+            child: FloatingActionButton(
+              heroTag: "addNoteFab",
+              elevation: 0,
+              backgroundColor: Colors.transparent,
+              onPressed: openAddNote,
+              child: const Icon(Icons.add_rounded, color: Colors.white, size: 34),
+            ),
           ),
         ),
       ],
     );
   }
 }
-
-// ─────────────────────────────────────────────────────────────
-// TAP SCALE CARD
-// ─────────────────────────────────────────────────────────────
 
 class _TapScaleCard extends StatefulWidget {
   final Widget child;
@@ -2055,332 +2076,6 @@ class _TapScaleCardState extends State<_TapScaleCard> {
         duration: const Duration(milliseconds: 130),
         curve: Curves.easeOutCubic,
         child: widget.child,
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────
-// PIN ENTRY PAGE
-// ─────────────────────────────────────────────────────────────
-
-class _PinEntryPage extends StatefulWidget {
-  final String title;
-  final String actionText;
-  final String hintText;
-  final bool allowBiometric;
-
-  const _PinEntryPage({
-    required this.title,
-    required this.actionText,
-    required this.hintText,
-    this.allowBiometric = true,
-  });
-
-  @override
-  State<_PinEntryPage> createState() => _PinEntryPageState();
-}
-
-class _PinEntryPageState extends State<_PinEntryPage> {
-  final TextEditingController controller = TextEditingController();
-  final FocusNode pinFocusNode = FocusNode();
-  bool isPinFocused = false;
-  String? errorText;
-  bool obscurePin = true;
-
-  @override
-  void initState() {
-    super.initState();
-    pinFocusNode.addListener(() {
-      if (!mounted) return;
-      setState(() => isPinFocused = pinFocusNode.hasFocus);
-    });
-    Future.delayed(const Duration(milliseconds: 250), () {
-      if (mounted) pinFocusNode.requestFocus();
-    });
-    // Auto-try fingerprint when PIN page opens
-    if (widget.allowBiometric) {
-      Future.delayed(const Duration(milliseconds: 400), () {
-        if (mounted) _tryBiometric();
-      });
-    }
-  }
-
-  Future<void> _tryBiometric() async {
-    final result = await BiometricService.authenticate(
-      reason: "Use fingerprint to unlock this note",
-    );
-    if (!mounted) return;
-
-    if (result == BiometricResult.success) {
-      Navigator.of(context).pop("__biometric__");
-    }
-  }
-
-  @override
-  void dispose() {
-    controller.dispose();
-    pinFocusNode.dispose();
-    super.dispose();
-    NotificationService.onOpenNoteRequest = null;
-  }
-
-  void submitPin() {
-    final pin = controller.text.trim();
-    if (pin.length != 4) {
-      setState(() => errorText = "PIN must be exactly 4 digits");
-      return;
-    }
-    if (!RegExp(r'^[0-9]{4}$').hasMatch(pin)) {
-      setState(() => errorText = "Only numbers allowed");
-      return;
-    }
-    FocusManager.instance.primaryFocus?.unfocus();
-    Future.delayed(const Duration(milliseconds: 120), () {
-      if (!mounted) return;
-      Navigator.of(context).pop(pin);
-    });
-  }
-
-  void cancelPin() {
-    FocusManager.instance.primaryFocus?.unfocus();
-    Future.delayed(const Duration(milliseconds: 120), () {
-      if (!mounted) return;
-      Navigator.of(context).pop(null);
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      resizeToAvoidBottomInset: true,
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: EdgeInsets.only(
-              left: 22,
-              right: 22,
-              top: 22,
-              bottom: MediaQuery.of(context).viewInsets.bottom + 22,
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(28),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(22),
-                  decoration: BoxDecoration(
-                    color: isDark
-                        ? const Color(0xff171928).withOpacity(0.96)
-                        : Colors.white.withOpacity(0.96),
-                    borderRadius: BorderRadius.circular(28),
-                    border: Border.all(color: Colors.white.withOpacity(0.24)),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(isDark ? 0.45 : 0.16),
-                        blurRadius: 26,
-                        offset: const Offset(0, 14),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        height: 70,
-                        width: 70,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: const LinearGradient(
-                            colors: [Color(0xff7F5AF0), Color(0xffFF6B9A)],
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: const Color(0xff7F5AF0).withOpacity(0.30),
-                              blurRadius: 20,
-                              offset: const Offset(0, 10),
-                            ),
-                          ],
-                        ),
-                        child: const Icon(
-                          Icons.lock_rounded,
-                          color: Colors.white,
-                          size: 34,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        widget.title,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: isDark
-                              ? Colors.white
-                              : const Color(0xff151225),
-                          fontSize: 22,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        "Enter exactly 4 digits",
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: isDark ? Colors.white60 : Colors.black54,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 18),
-                      RainbowEdgeLighting(
-                        enabled: isPinFocused,
-                        radius: 18,
-                        child: TextField(
-                          controller: controller,
-                          focusNode: pinFocusNode,
-                          keyboardType: TextInputType.number,
-                          obscureText: obscurePin,
-                          maxLength: 4,
-                          textAlign: TextAlign.center,
-                          inputFormatters: [
-                            FilteringTextInputFormatter.digitsOnly,
-                            LengthLimitingTextInputFormatter(4),
-                          ],
-                          style: TextStyle(
-                            color: isDark
-                                ? Colors.white
-                                : const Color(0xff151225),
-                            fontSize: 22,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 8,
-                          ),
-                          decoration: InputDecoration(
-                            hintText: "••••",
-                            hintStyle: TextStyle(
-                              color: isDark ? Colors.white30 : Colors.black26,
-                              letterSpacing: 8,
-                            ),
-                            errorText: errorText,
-                            counterText: "",
-                            filled: true,
-                            fillColor: isDark
-                                ? Colors.white.withOpacity(0.08)
-                                : const Color(0xffF4F1FF),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(18),
-                              borderSide: BorderSide.none,
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(18),
-                              borderSide: const BorderSide(
-                                color: Color(0xff7F5AF0),
-                                width: 1.5,
-                              ),
-                            ),
-                            // ✅ show/hide PIN toggle
-                            suffixIcon: IconButton(
-                              icon: Icon(
-                                obscurePin
-                                    ? Icons.visibility_rounded
-                                    : Icons.visibility_off_rounded,
-                                color: isDark ? Colors.white54 : Colors.black38,
-                                size: 18,
-                              ),
-                              onPressed: () =>
-                                  setState(() => obscurePin = !obscurePin),
-                            ),
-                          ),
-                          onChanged: (_) {
-                            if (errorText != null) {
-                              setState(() => errorText = null);
-                            }
-                          },
-                          onSubmitted: (_) => submitPin(),
-                        ),
-                      ),
-                      const SizedBox(height: 18),
-                      if (widget.allowBiometric) ...[
-                        Center(
-                          child: TextButton.icon(
-                            onPressed: _tryBiometric,
-                            icon: const Icon(
-                              Icons.fingerprint_rounded,
-                              color: Color(0xff7F5AF0),
-                            ),
-                            label: const Text(
-                              "Unlock with Fingerprint",
-                              style: TextStyle(
-                                color: Color(0xff7F5AF0),
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton(
-                              onPressed: cancelPin,
-                              style: OutlinedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 14,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                                side: BorderSide(
-                                  color: isDark
-                                      ? Colors.white.withOpacity(0.18)
-                                      : Colors.black.withOpacity(0.12),
-                                ),
-                              ),
-                              child: Text(
-                                "Cancel",
-                                style: TextStyle(
-                                  color: isDark
-                                      ? Colors.white70
-                                      : Colors.black54,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: FilledButton(
-                              onPressed: submitPin,
-                              style: FilledButton.styleFrom(
-                                backgroundColor: const Color(0xff7F5AF0),
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 14,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                              ),
-                              child: Text(
-                                widget.actionText,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
       ),
     );
   }

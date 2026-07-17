@@ -1,11 +1,10 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'biometric_service.dart';
 import 'dataModle.dart';
 import 'Note_Detail_Screen.dart';
 import 'Add_note.dart';
-
-
 
 class FavouriteScreen extends StatefulWidget {
   final List<NoteModel> notes;
@@ -22,15 +21,29 @@ class FavouriteScreen extends StatefulWidget {
 }
 
 class _FavouriteScreenState extends State<FavouriteScreen> {
-  // ✅ search inside favourites
   final TextEditingController searchController = TextEditingController();
+  final FocusNode searchFocusNode = FocusNode();
   bool isSearching = false;
   String searchQuery = "";
 
   @override
+  void initState() {
+    super.initState();
+    searchFocusNode.addListener(() {
+      if (!mounted) return;
+      setState(() {});
+    });
+  }
+
+  @override
   void dispose() {
     searchController.dispose();
+    searchFocusNode.dispose();
     super.dispose();
+  }
+
+  void _unfocusSearch() {
+    searchFocusNode.unfocus();
   }
 
   String formatDate(DateTime date) {
@@ -46,13 +59,33 @@ class _FavouriteScreenState extends State<FavouriteScreen> {
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message),
+        content: Row(
+          children: [
+            Icon(
+              danger ? Icons.error_outline : Icons.check_circle_outline,
+              color: Colors.white,
+              size: 18,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
         behavior: SnackBarBehavior.floating,
-        backgroundColor:
-        danger ? Colors.redAccent : const Color(0xff7F5AF0),
+        backgroundColor: danger ? Colors.redAccent : const Color(0xff7F5AF0),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(14),
         ),
+        margin: const EdgeInsets.all(16),
+        duration: const Duration(milliseconds: 2500),
+        elevation: 4,
       ),
     );
   }
@@ -67,8 +100,7 @@ class _FavouriteScreenState extends State<FavouriteScreen> {
   }
 
   List<NoteModel> get favouriteNotes {
-    final favs =
-    widget.notes.where((e) => e.isFavourite).toList();
+    final favs = widget.notes.where((e) => e.isFavourite).toList();
     if (searchQuery.trim().isEmpty) return favs;
     final q = searchQuery.toLowerCase().trim();
     return favs.where((n) {
@@ -126,19 +158,14 @@ class _FavouriteScreenState extends State<FavouriteScreen> {
                   _topBar(isDark),
                   _headerCard(isDark, favNotes.length),
                   const SizedBox(height: 8),
-
-                  // ✅ search bar
                   _searchBar(isDark),
                   const SizedBox(height: 8),
-
                   Expanded(
                     child: favNotes.isEmpty
                         ? _emptyState(isDark)
                         : ListView.builder(
-                      physics:
-                      const BouncingScrollPhysics(),
-                      padding: const EdgeInsets.fromLTRB(
-                          16, 0, 16, 20),
+                      physics: const BouncingScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
                       itemCount: favNotes.length,
                       itemBuilder: (context, index) {
                         final note = favNotes[index];
@@ -152,14 +179,12 @@ class _FavouriteScreenState extends State<FavouriteScreen> {
                             return Opacity(
                               opacity: value,
                               child: Transform.translate(
-                                offset: Offset(
-                                    0, 20 * (1 - value)),
+                                offset: Offset(0, 20 * (1 - value)),
                                 child: child,
                               ),
                             );
                           },
-                          child:
-                          _favouriteCard(note, isDark),
+                          child: _favouriteCard(note, isDark),
                         );
                       },
                     ),
@@ -181,34 +206,37 @@ class _FavouriteScreenState extends State<FavouriteScreen> {
           _glassIconButton(
             icon: Icons.arrow_back_rounded,
             isDark: isDark,
-            onTap: () => Navigator.pop(context),
+            onTap: () {
+              _unfocusSearch();
+              Navigator.pop(context);
+            },
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
               "Favourite Notes",
               style: TextStyle(
-                color: isDark
-                    ? Colors.white
-                    : const Color(0xff151225),
+                color: isDark ? Colors.white : const Color(0xff151225),
                 fontSize: 22,
                 fontWeight: FontWeight.w900,
               ),
             ),
           ),
-          // ✅ toggle search
           _glassIconButton(
-            icon: isSearching
-                ? Icons.search_off_rounded
-                : Icons.search_rounded,
+            icon: isSearching ? Icons.search_off_rounded : Icons.search_rounded,
             isDark: isDark,
             color: const Color(0xff7F5AF0),
             onTap: () {
               setState(() {
                 isSearching = !isSearching;
                 if (!isSearching) {
+                  _unfocusSearch();
                   searchController.clear();
                   searchQuery = "";
+                } else {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) searchFocusNode.requestFocus();
+                  });
                 }
               });
             },
@@ -231,30 +259,24 @@ class _FavouriteScreenState extends State<FavouriteScreen> {
       child: isSearching
           ? Padding(
         key: const ValueKey("search"),
-        padding:
-        const EdgeInsets.symmetric(horizontal: 16),
+        padding: const EdgeInsets.symmetric(horizontal: 16),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(22),
           child: BackdropFilter(
-            filter:
-            ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+            filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
             child: TextField(
               controller: searchController,
+              focusNode: searchFocusNode,
               autofocus: true,
-              onChanged: (v) =>
-                  setState(() => searchQuery = v),
+              onChanged: (v) => setState(() => searchQuery = v),
               style: TextStyle(
-                color: isDark
-                    ? Colors.white
-                    : const Color(0xff151225),
+                color: isDark ? Colors.white : const Color(0xff151225),
                 fontWeight: FontWeight.w600,
               ),
               decoration: InputDecoration(
                 hintText: "Search favourites...",
                 hintStyle: TextStyle(
-                  color: isDark
-                      ? Colors.white54
-                      : Colors.black45,
+                  color: isDark ? Colors.white54 : Colors.black45,
                 ),
                 prefixIcon: const Icon(
                   Icons.search_rounded,
@@ -264,9 +286,7 @@ class _FavouriteScreenState extends State<FavouriteScreen> {
                     ? IconButton(
                   icon: Icon(
                     Icons.close_rounded,
-                    color: isDark
-                        ? Colors.white54
-                        : Colors.black45,
+                    color: isDark ? Colors.white54 : Colors.black45,
                   ),
                   onPressed: () {
                     searchController.clear();
@@ -282,16 +302,16 @@ class _FavouriteScreenState extends State<FavouriteScreen> {
                   borderRadius: BorderRadius.circular(22),
                   borderSide: BorderSide.none,
                 ),
-                contentPadding:
-                const EdgeInsets.symmetric(
-                    horizontal: 18, vertical: 14),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 14,
+                ),
               ),
             ),
           ),
         ),
       )
-          : const SizedBox(
-          key: ValueKey("no-search"), height: 0),
+          : const SizedBox(key: ValueKey("no-search"), height: 0),
     );
   }
 
@@ -309,13 +329,10 @@ class _FavouriteScreenState extends State<FavouriteScreen> {
                   ? Colors.white.withOpacity(0.08)
                   : Colors.white.withOpacity(0.55),
               borderRadius: BorderRadius.circular(28),
-              border: Border.all(
-                color: Colors.white.withOpacity(0.25),
-              ),
+              border: Border.all(color: Colors.white.withOpacity(0.25)),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black
-                      .withOpacity(isDark ? 0.35 : 0.08),
+                  color: Colors.black.withOpacity(isDark ? 0.35 : 0.08),
                   blurRadius: 24,
                   offset: const Offset(0, 14),
                 ),
@@ -329,10 +346,7 @@ class _FavouriteScreenState extends State<FavouriteScreen> {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     gradient: const LinearGradient(
-                      colors: [
-                        Color(0xffFF4F8B),
-                        Color(0xff7F5AF0),
-                      ],
+                      colors: [Color(0xffFF4F8B), Color(0xff7F5AF0)],
                     ),
                     boxShadow: [
                       BoxShadow(
@@ -351,8 +365,7 @@ class _FavouriteScreenState extends State<FavouriteScreen> {
                 const SizedBox(width: 16),
                 Expanded(
                   child: Column(
-                    crossAxisAlignment:
-                    CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         "$count Favourite${count != 1 ? 's' : ''}",
@@ -368,9 +381,7 @@ class _FavouriteScreenState extends State<FavouriteScreen> {
                       Text(
                         "Your most loved notes in one place",
                         style: TextStyle(
-                          color: isDark
-                              ? Colors.white60
-                              : Colors.black54,
+                          color: isDark ? Colors.white60 : Colors.black54,
                           fontSize: 13,
                         ),
                       ),
@@ -394,8 +405,7 @@ class _FavouriteScreenState extends State<FavouriteScreen> {
         child: ClipRRect(
           borderRadius: BorderRadius.circular(30),
           child: BackdropFilter(
-            filter:
-            ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+            filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
             child: Container(
               width: double.infinity,
               padding: const EdgeInsets.all(28),
@@ -404,9 +414,7 @@ class _FavouriteScreenState extends State<FavouriteScreen> {
                     ? Colors.white.withOpacity(0.08)
                     : Colors.white.withOpacity(0.55),
                 borderRadius: BorderRadius.circular(30),
-                border: Border.all(
-                  color: Colors.white.withOpacity(0.25),
-                ),
+                border: Border.all(color: Colors.white.withOpacity(0.25)),
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -428,13 +436,9 @@ class _FavouriteScreenState extends State<FavouriteScreen> {
                   ),
                   const SizedBox(height: 18),
                   Text(
-                    isSearchEmpty
-                        ? "Nothing matched"
-                        : "No favourites yet",
+                    isSearchEmpty ? "Nothing matched" : "No favourites yet",
                     style: TextStyle(
-                      color: isDark
-                          ? Colors.white
-                          : const Color(0xff151225),
+                      color: isDark ? Colors.white : const Color(0xff151225),
                       fontSize: 20,
                       fontWeight: FontWeight.w900,
                     ),
@@ -446,9 +450,7 @@ class _FavouriteScreenState extends State<FavouriteScreen> {
                         : "Tap the heart icon on any note to save it here.",
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      color: isDark
-                          ? Colors.white60
-                          : Colors.black54,
+                      color: isDark ? Colors.white60 : Colors.black54,
                       fontSize: 13,
                     ),
                   ),
@@ -471,26 +473,20 @@ class _FavouriteScreenState extends State<FavouriteScreen> {
           child: Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: note.color
-                  .withOpacity(isDark ? 0.28 : 0.42),
+              color: note.color.withOpacity(isDark ? 0.28 : 0.42),
               borderRadius: BorderRadius.circular(26),
-              border: Border.all(
-                color: Colors.white.withOpacity(0.25),
-              ),
+              border: Border.all(color: Colors.white.withOpacity(0.25)),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black
-                      .withOpacity(isDark ? 0.28 : 0.08),
+                  color: Colors.black.withOpacity(isDark ? 0.28 : 0.08),
                   blurRadius: 18,
                   offset: const Offset(0, 10),
                 ),
               ],
             ),
             child: Row(
-              crossAxisAlignment:
-              CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Note icon
                 Container(
                   height: 48,
                   width: 48,
@@ -504,46 +500,52 @@ class _FavouriteScreenState extends State<FavouriteScreen> {
                     note.isLocked
                         ? Icons.lock_rounded
                         : Icons.sticky_note_2_rounded,
-                    color: isDark
-                        ? Colors.white
-                        : const Color(0xff151225),
+                    color: isDark ? Colors.white : const Color(0xff151225),
                   ),
                 ),
                 const SizedBox(width: 14),
-
-                // Content
                 Expanded(
                   child: GestureDetector(
-                    onTap: () {
+                    onTap: () async {
                       HapticFeedback.selectionClick();
-                      // ✅ tap to open note detail
+
+                      if (note.isLocked) {
+                        final ok = await BiometricService.unlockNote(
+                          context,
+                          note,
+                          reason: "Use fingerprint to unlock this note",
+                        );
+                        if (!ok || !mounted) return;
+                      }
+
+                      if (!context.mounted) return;
+                      _unfocusSearch();
+
                       Navigator.push(
                         context,
                         MaterialPageRoute(
                           builder: (_) => NoteDetailScreen(
                             note: note,
-                            onBack: () =>
-                                Navigator.pop(context),
+                            onBack: () => Navigator.pop(context),
                             onEdit: () {
                               Navigator.pop(context);
+
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (_) =>
-                                      AddNoteScreen(
-                                        editNote: note,
-                                      ),
+                                  builder: (_) => AddNoteScreen(
+                                    editNote: note,
+                                  ),
                                 ),
                               ).then((updated) {
-                                if (updated != null &&
-                                    mounted) {
-                                  final idx = widget.notes
-                                      .indexOf(note);
+                                if (updated != null && mounted) {
+                                  final idx = widget.notes.indexOf(note);
+
                                   if (idx != -1) {
                                     setState(() {
-                                      widget.notes[idx] =
-                                          updated;
+                                      widget.notes[idx] = updated;
                                     });
+
                                     widget.onChanged();
                                   }
                                 }
@@ -554,16 +556,12 @@ class _FavouriteScreenState extends State<FavouriteScreen> {
                       );
                     },
                     child: Column(
-                      crossAxisAlignment:
-                      CrossAxisAlignment.start,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Title
                         Text(
                           note.isLocked
                               ? "Locked Note"
-                              : (note.title.isEmpty
-                              ? "Untitled"
-                              : note.title),
+                              : (note.title.isEmpty ? "Untitled" : note.title),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
@@ -575,11 +573,9 @@ class _FavouriteScreenState extends State<FavouriteScreen> {
                           ),
                         ),
                         const SizedBox(height: 5),
-
-                        // Note preview
                         Text(
                           note.isLocked
-                              ? "Unlock from home screen to view"
+                              ? "Tap to unlock and view"
                               : (note.note.isEmpty
                               ? "No content"
                               : note.preview),
@@ -587,49 +583,38 @@ class _FavouriteScreenState extends State<FavouriteScreen> {
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             height: 1.4,
-                            color: isDark
-                                ? Colors.white70
-                                : Colors.black87,
+                            color: isDark ? Colors.white70 : Colors.black87,
                             fontSize: 13,
                           ),
                         ),
                         const SizedBox(height: 10),
-
-                        // Meta row
                         Row(
                           children: [
                             Icon(
                               Icons.calendar_month_rounded,
                               size: 13,
-                              color: isDark
-                                  ? Colors.white60
-                                  : Colors.black45,
+                              color: isDark ? Colors.white60 : Colors.black45,
                             ),
                             const SizedBox(width: 4),
                             Text(
                               formatDate(note.createdAt),
                               style: TextStyle(
                                 fontSize: 11,
-                                color: isDark
-                                    ? Colors.white60
-                                    : Colors.black45,
+                                color: isDark ? Colors.white60 : Colors.black45,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
                             const SizedBox(width: 8),
                             Container(
-                              padding:
-                              const EdgeInsets.symmetric(
+                              padding: const EdgeInsets.symmetric(
                                 horizontal: 8,
                                 vertical: 4,
                               ),
                               decoration: BoxDecoration(
-                                color: Colors.white
-                                    .withOpacity(isDark
-                                    ? 0.08
-                                    : 0.35),
-                                borderRadius:
-                                BorderRadius.circular(20),
+                                color: Colors.white.withOpacity(
+                                  isDark ? 0.08 : 0.35,
+                                ),
+                                borderRadius: BorderRadius.circular(20),
                               ),
                               child: Text(
                                 note.category,
@@ -638,13 +623,10 @@ class _FavouriteScreenState extends State<FavouriteScreen> {
                                   fontWeight: FontWeight.w700,
                                   color: isDark
                                       ? Colors.white70
-                                      : const Color(
-                                      0xff151225),
+                                      : const Color(0xff151225),
                                 ),
                               ),
                             ),
-
-                            // ✅ word count chip
                             const SizedBox(width: 6),
                             if (!note.isLocked)
                               Text(
@@ -663,10 +645,7 @@ class _FavouriteScreenState extends State<FavouriteScreen> {
                     ),
                   ),
                 ),
-
                 const SizedBox(width: 10),
-
-                // ✅ remove favourite + save
                 GestureDetector(
                   onTap: () {
                     HapticFeedback.lightImpact();
@@ -677,15 +656,11 @@ class _FavouriteScreenState extends State<FavouriteScreen> {
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       gradient: const LinearGradient(
-                        colors: [
-                          Color(0xffFF4F8B),
-                          Color(0xffFF7A7A),
-                        ],
+                        colors: [Color(0xffFF4F8B), Color(0xffFF7A7A)],
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color:
-                          Colors.red.withOpacity(0.25),
+                          color: Colors.red.withOpacity(0.25),
                           blurRadius: 14,
                           offset: const Offset(0, 8),
                         ),
@@ -726,16 +701,11 @@ class _FavouriteScreenState extends State<FavouriteScreen> {
                   ? Colors.white.withOpacity(0.08)
                   : Colors.white.withOpacity(0.50),
               borderRadius: BorderRadius.circular(18),
-              border: Border.all(
-                color: Colors.white.withOpacity(0.20),
-              ),
+              border: Border.all(color: Colors.white.withOpacity(0.20)),
             ),
             child: Icon(
               icon,
-              color: color ??
-                  (isDark
-                      ? Colors.white
-                      : const Color(0xff151225)),
+              color: color ?? (isDark ? Colors.white : const Color(0xff151225)),
               size: 22,
             ),
           ),
@@ -748,10 +718,7 @@ class _FavouriteScreenState extends State<FavouriteScreen> {
     return Container(
       height: size,
       width: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: color,
-      ),
+      decoration: BoxDecoration(shape: BoxShape.circle, color: color),
     );
   }
 }

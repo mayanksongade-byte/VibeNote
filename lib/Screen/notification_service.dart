@@ -1,6 +1,8 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
+import 'package:shared_preferences/shared_preferences.dart';
 
 @pragma('vm:entry-point')
 void notificationTapBackground(NotificationResponse response) {
@@ -8,6 +10,8 @@ void notificationTapBackground(NotificationResponse response) {
 }
 
 class NotificationService {
+  NotificationService._();
+
   static String? pendingOpenNoteId;
   static void Function(String noteId)? onOpenNoteRequest;
 
@@ -24,12 +28,12 @@ class NotificationService {
 
   static Future<void> init() async {
     if (_initialized) return;
-
     tz.initializeTimeZones();
     tz.setLocalLocation(tz.getLocation('Asia/Kolkata'));
 
-    const androidSettings =
-    AndroidInitializationSettings('@mipmap/ic_launcher');
+    const androidSettings = AndroidInitializationSettings(
+      '@mipmap/ic_launcher',
+    );
 
     const initSettings = InitializationSettings(android: androidSettings);
 
@@ -39,26 +43,87 @@ class NotificationService {
       onDidReceiveBackgroundNotificationResponse: notificationTapBackground,
     );
 
-    await notificationsPlugin
-        .resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>()
-        ?.requestNotificationsPermission();
+    final androidImplementation = notificationsPlugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    await androidImplementation?.requestNotificationsPermission();
 
     _initialized = true;
+
+    final launchDetails =
+    await notificationsPlugin.getNotificationAppLaunchDetails();
+
+    if (launchDetails?.didNotificationLaunchApp ?? false) {
+      final payload = launchDetails!.notificationResponse?.payload ?? "";
+      final parts = payload.split("|||");
+      if (parts.length >= 4) {
+        pendingOpenNoteId = parts[3];
+      }
+    }
+
+    final androidPlugin = notificationsPlugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+
+    if (androidPlugin != null) {
+      await androidPlugin.createNotificationChannel(
+        const AndroidNotificationChannel(
+          'vibenote_default_channel',
+          'VibeNote Reminders',
+          description: 'Default reminder notifications',
+          importance: Importance.max,
+        ),
+      );
+
+      const sounds = [
+        'faaa',
+        'hindi_meme',
+        'jethalal_meme',
+        'nahi_meme',
+        'depression_meme',
+        'choti_bachi_ho_kya',
+        'danish_bhai',
+        'omae_wa_mu_shindeu',
+        'omfo_song_jay_toffek',
+      ];
+
+      final prefs = await SharedPreferences.getInstance();
+      const channelsFixedKey = 'vibenote_sound_channels_fixed_v1';
+      final alreadyFixed = prefs.getBool(channelsFixedKey) ?? false;
+
+      if (!alreadyFixed) {
+        // Android notification channels are permanent once created — if these
+        // were created earlier without a valid raw sound resource, recreating
+        // them with the same id silently does nothing. Delete them once so
+        // they get recreated below with the correct sound.
+        for (final sound in sounds) {
+          try {
+            await androidPlugin.deleteNotificationChannel(
+              channelId: 'vibenote_${sound}_channel',
+            );
+          } catch (_) {}
+        }
+        await prefs.setBool(channelsFixedKey, true);
+      }
+
+      for (final sound in sounds) {
+        await androidPlugin.createNotificationChannel(
+          AndroidNotificationChannel(
+            'vibenote_${sound}_channel',
+            'VibeNote $sound',
+            description: 'Reminder notifications',
+            importance: Importance.max,
+            playSound: true,
+            sound: RawResourceAndroidNotificationSound(sound),
+          ),
+        );
+      }
+    }
   }
 
   static Future<void> handleAction(NotificationResponse response) async {
-    tz.initializeTimeZones();
-    tz.setLocalLocation(tz.getLocation('Asia/Kolkata'));
-
     final payload = response.payload ?? "";
     final parts = payload.split("|||");
 
     if (parts.length < 4) return;
 
     final id = int.tryParse(parts[0]);
-    final title = parts[1];
-    final body = parts[2];
     final noteId = parts[3];
 
     if (id == null) return;
@@ -66,24 +131,19 @@ class NotificationService {
     final actionId = response.actionId ?? "";
 
     if (actionId == "done_action") {
-      await cancelNotification(id);
-      return;
-    }
-
-    if (actionId == "snooze_action") {
-      await scheduleNotification(
-        id: id,
-        title: title,
-        body: body,
-        scheduledTime: DateTime.now().add(const Duration(minutes: 10)),
-        noteId: noteId,
-      );
+      await notificationsPlugin.cancel(id: id);
+      pendingOpenNoteId = null;
       return;
     }
 
     if (actionId == "open_action" || actionId.isEmpty) {
       pendingOpenNoteId = noteId;
-      onOpenNoteRequest?.call(noteId);
+
+      if (onOpenNoteRequest != null) {
+        onOpenNoteRequest!(noteId);
+        pendingOpenNoteId = null;
+      }
+
       return;
     }
   }
@@ -94,6 +154,18 @@ class NotificationService {
 
   static Future<void> cancelAllNotifications() async {
     await notificationsPlugin.cancelAll();
+  }
+
+  static String _channelIdForSound(String selectedSound) {
+    return selectedSound == "default"
+        ? "vibenote_default_channel"
+        : "vibenote_${selectedSound}_channel";
+  }
+
+  static String _channelNameForSound(String selectedSound) {
+    return selectedSound == "default"
+        ? "VibeNote Reminders"
+        : "VibeNote ${selectedSound.replaceAll('_', ' ')}";
   }
 
   static Future<void> scheduleNotification({
@@ -107,6 +179,13 @@ class NotificationService {
 
     await cancelNotification(id);
 
+    final prefs = await SharedPreferences.getInstance();
+
+    final notificationsEnabled = prefs.getBool("notificationsOn") ?? true;
+    if (!notificationsEnabled) return;
+
+    final selectedSound = prefs.getString("notification_sound") ?? "default";
+
     final cleanBody = body.trim().isEmpty
         ? "Open VibeNote to view this note."
         : body.trim();
@@ -114,12 +193,15 @@ class NotificationService {
     final payload = "$id|||$title|||$cleanBody|||${noteId ?? ""}";
 
     final androidDetails = AndroidNotificationDetails(
-      'vibenote_channel',
-      'VibeNote Reminders',
+      _channelIdForSound(selectedSound),
+      _channelNameForSound(selectedSound),
       channelDescription: 'Smart reminder notifications for your notes',
       importance: Importance.max,
       priority: Priority.high,
       playSound: true,
+      sound: selectedSound == "default"
+          ? null
+          : RawResourceAndroidNotificationSound(selectedSound),
       enableVibration: true,
       ticker: 'VibeNote Reminder',
       styleInformation: BigTextStyleInformation(
@@ -131,12 +213,6 @@ class NotificationService {
         AndroidNotificationAction(
           'done_action',
           'Done',
-          showsUserInterface: false,
-          cancelNotification: true,
-        ),
-        AndroidNotificationAction(
-          'snooze_action',
-          'Snooze 10m',
           showsUserInterface: false,
           cancelNotification: true,
         ),
@@ -161,16 +237,23 @@ class NotificationService {
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
         payload: payload,
       );
-    } catch (_) {
-      await notificationsPlugin.zonedSchedule(
-        id: id,
-        title: title,
-        body: cleanBody,
-        scheduledDate: tz.TZDateTime.from(scheduledTime, tz.local),
-        notificationDetails: details,
-        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-        payload: payload,
-      );
+    } catch (e) {
+      debugPrint("Notification exact schedule error: $e");
+
+      try {
+        await notificationsPlugin.zonedSchedule(
+          id: id,
+          title: title,
+          body: cleanBody,
+          scheduledDate: tz.TZDateTime.from(scheduledTime, tz.local),
+          notificationDetails: details,
+          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+          payload: payload,
+        );
+      } catch (e) {
+        debugPrint("Notification inexact schedule error: $e");
+        rethrow;
+      }
     }
   }
 }

@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'biometric_service.dart';
 import 'dataModle.dart';
 import 'Note_Detail_Screen.dart';
 import 'Add_note.dart';
@@ -22,16 +23,29 @@ class ArchiveScreen extends StatefulWidget {
 }
 
 class _ArchiveScreenState extends State<ArchiveScreen> {
-  // ✅ search inside archive
-  final TextEditingController searchController =
-  TextEditingController();
+  final TextEditingController searchController = TextEditingController();
+  final FocusNode searchFocusNode = FocusNode();
   bool isSearching = false;
   String searchQuery = "";
 
   @override
+  void initState() {
+    super.initState();
+    searchFocusNode.addListener(() {
+      if (!mounted) return;
+      setState(() {});
+    });
+  }
+
+  @override
   void dispose() {
     searchController.dispose();
+    searchFocusNode.dispose();
     super.dispose();
+  }
+
+  void _unfocusSearch() {
+    searchFocusNode.unfocus();
   }
 
   String formatDate(DateTime date) {
@@ -42,19 +56,38 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
     return "${date.day} ${months[date.month - 1]} ${date.year}";
   }
 
-  // ✅ mounted check added
   void showMessage(String message, {bool danger = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message),
+        content: Row(
+          children: [
+            Icon(
+              danger ? Icons.error_outline : Icons.check_circle_outline,
+              color: Colors.white,
+              size: 18,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
         behavior: SnackBarBehavior.floating,
-        backgroundColor:
-        danger ? Colors.redAccent : const Color(0xff7F5AF0),
+        backgroundColor: danger ? Colors.redAccent : const Color(0xff7F5AF0),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
         ),
+        margin: const EdgeInsets.all(16),
+        duration: const Duration(milliseconds: 2500),
+        elevation: 4,
       ),
     );
   }
@@ -63,8 +96,7 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
     final result = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor:
-        isDark ? const Color(0xff151225) : Colors.white,
+        backgroundColor: isDark ? const Color(0xff151225) : Colors.white,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(24),
         ),
@@ -97,17 +129,14 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
     return result == true;
   }
 
-  // ✅ confirm delete all archived notes
   Future<void> deleteAllArchived(bool isDark) async {
-    final archivedNotes =
-    widget.notes.where((n) => n.isArchived).toList();
+    final archivedNotes = widget.notes.where((n) => n.isArchived).toList();
     if (archivedNotes.isEmpty) return;
 
     final result = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        backgroundColor:
-        isDark ? const Color(0xff151225) : Colors.white,
+        backgroundColor: isDark ? const Color(0xff151225) : Colors.white,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(24),
         ),
@@ -151,8 +180,7 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
   }
 
   List<NoteModel> get archivedNotes {
-    final archived =
-    widget.notes.where((e) => e.isArchived).toList();
+    final archived = widget.notes.where((e) => e.isArchived).toList();
     if (searchQuery.trim().isEmpty) return archived;
     final q = searchQuery.toLowerCase().trim();
     return archived.where((n) {
@@ -210,56 +238,37 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
                   _topBar(isDark),
                   _headerCard(isDark, archived.length),
                   const SizedBox(height: 8),
-
-                  // ✅ search bar
                   _searchBar(isDark),
                   const SizedBox(height: 8),
-
                   Expanded(
                     child: archived.isEmpty
                         ? _emptyState(isDark)
                         : GridView.builder(
-                      physics:
-                      const BouncingScrollPhysics(),
-                      padding: const EdgeInsets.fromLTRB(
-                          16, 0, 16, 22),
+                      physics: const BouncingScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 22),
                       itemCount: archived.length,
-                      gridDelegate:
-                      SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount:
-                        MediaQuery.of(context)
-                            .size
-                            .width >
-                            600
-                            ? 3
-                            : 2,
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: MediaQuery.of(context).size.width > 600 ? 3 : 2,
                         crossAxisSpacing: 12,
                         mainAxisSpacing: 12,
                         childAspectRatio: 0.82,
                       ),
                       itemBuilder: (context, index) {
                         final note = archived[index];
-                        return TweenAnimationBuilder<
-                            double>(
+                        return TweenAnimationBuilder<double>(
                           tween: Tween(begin: 0, end: 1),
-                          duration: Duration(
-                            milliseconds:
-                            280 + (index * 50),
-                          ),
+                          duration: Duration(milliseconds: 280 + (index * 50)),
                           curve: Curves.easeOutCubic,
-                          builder:
-                              (context, value, child) {
+                          builder: (context, value, child) {
                             return Opacity(
                               opacity: value,
                               child: Transform.scale(
-                                scale:
-                                0.94 + (value * 0.06),
+                                scale: 0.94 + (value * 0.06),
                                 child: child,
                               ),
                             );
                           },
-                          child:
-                          _archiveCard(note, isDark),
+                          child: _archiveCard(note, isDark),
                         );
                       },
                     ),
@@ -274,8 +283,7 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
   }
 
   Widget _topBar(bool isDark) {
-    final hasArchived =
-    widget.notes.any((n) => n.isArchived);
+    final hasArchived = widget.notes.any((n) => n.isArchived);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 8, 16, 8),
@@ -284,42 +292,42 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
           _glassIconButton(
             icon: Icons.arrow_back_rounded,
             isDark: isDark,
-            onTap: () => Navigator.pop(context),
+            onTap: () {
+              _unfocusSearch();
+              Navigator.pop(context);
+            },
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
               "Archived Notes",
               style: TextStyle(
-                color: isDark
-                    ? Colors.white
-                    : const Color(0xff151225),
+                color: isDark ? Colors.white : const Color(0xff151225),
                 fontSize: 22,
                 fontWeight: FontWeight.w900,
               ),
             ),
           ),
-
-          // ✅ search toggle
           _glassIconButton(
-            icon: isSearching
-                ? Icons.search_off_rounded
-                : Icons.search_rounded,
+            icon: isSearching ? Icons.search_off_rounded : Icons.search_rounded,
             isDark: isDark,
             color: const Color(0xff7F5AF0),
             onTap: () {
               setState(() {
                 isSearching = !isSearching;
                 if (!isSearching) {
+                  _unfocusSearch();
                   searchController.clear();
                   searchQuery = "";
+                } else {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) searchFocusNode.requestFocus();
+                  });
                 }
               });
             },
           ),
           const SizedBox(width: 8),
-
-          // ✅ delete all archived button
           if (hasArchived) ...[
             _glassIconButton(
               icon: Icons.delete_sweep_rounded,
@@ -329,7 +337,6 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
             ),
             const SizedBox(width: 8),
           ],
-
           _glassIconButton(
             icon: Icons.inventory_2_rounded,
             isDark: isDark,
@@ -347,30 +354,24 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
       child: isSearching
           ? Padding(
         key: const ValueKey("search"),
-        padding:
-        const EdgeInsets.symmetric(horizontal: 16),
+        padding: const EdgeInsets.symmetric(horizontal: 16),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(22),
           child: BackdropFilter(
-            filter:
-            ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+            filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
             child: TextField(
               controller: searchController,
+              focusNode: searchFocusNode,
               autofocus: true,
-              onChanged: (v) =>
-                  setState(() => searchQuery = v),
+              onChanged: (v) => setState(() => searchQuery = v),
               style: TextStyle(
-                color: isDark
-                    ? Colors.white
-                    : const Color(0xff151225),
+                color: isDark ? Colors.white : const Color(0xff151225),
                 fontWeight: FontWeight.w600,
               ),
               decoration: InputDecoration(
                 hintText: "Search archived notes...",
                 hintStyle: TextStyle(
-                  color: isDark
-                      ? Colors.white54
-                      : Colors.black45,
+                  color: isDark ? Colors.white54 : Colors.black45,
                 ),
                 prefixIcon: const Icon(
                   Icons.search_rounded,
@@ -380,14 +381,11 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
                     ? IconButton(
                   icon: Icon(
                     Icons.close_rounded,
-                    color: isDark
-                        ? Colors.white54
-                        : Colors.black45,
+                    color: isDark ? Colors.white54 : Colors.black45,
                   ),
                   onPressed: () {
                     searchController.clear();
-                    setState(
-                            () => searchQuery = "");
+                    setState(() => searchQuery = "");
                   },
                 )
                     : null,
@@ -399,16 +397,16 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
                   borderRadius: BorderRadius.circular(22),
                   borderSide: BorderSide.none,
                 ),
-                contentPadding:
-                const EdgeInsets.symmetric(
-                    horizontal: 18, vertical: 14),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 14,
+                ),
               ),
             ),
           ),
         ),
       )
-          : const SizedBox(
-          key: ValueKey("no-search"), height: 0),
+          : const SizedBox(key: ValueKey("no-search"), height: 0),
     );
   }
 
@@ -452,9 +450,7 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
                 Text(
                   "$count Archived",
                   style: TextStyle(
-                    color: isDark
-                        ? Colors.white
-                        : const Color(0xff151225),
+                    color: isDark ? Colors.white : const Color(0xff151225),
                     fontSize: 22,
                     fontWeight: FontWeight.w900,
                   ),
@@ -463,9 +459,7 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
                 Text(
                   "Restore or permanently delete old notes",
                   style: TextStyle(
-                    color: isDark
-                        ? Colors.white60
-                        : Colors.black54,
+                    color: isDark ? Colors.white60 : Colors.black54,
                     fontSize: 12,
                   ),
                 ),
@@ -500,21 +494,15 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
                   isSearchEmpty
                       ? Icons.search_off_rounded
                       : Icons.inventory_2_outlined,
-                  color: isSearchEmpty
-                      ? Colors.redAccent
-                      : Colors.orange,
+                  color: isSearchEmpty ? Colors.redAccent : Colors.orange,
                   size: 40,
                 ),
               ),
               const SizedBox(height: 18),
               Text(
-                isSearchEmpty
-                    ? "Nothing matched"
-                    : "No archived notes",
+                isSearchEmpty ? "Nothing matched" : "No archived notes",
                 style: TextStyle(
-                  color: isDark
-                      ? Colors.white
-                      : const Color(0xff151225),
+                  color: isDark ? Colors.white : const Color(0xff151225),
                   fontSize: 20,
                   fontWeight: FontWeight.w900,
                 ),
@@ -526,9 +514,7 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
                     : "Swipe a note left on home screen to archive it.",
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: isDark
-                      ? Colors.white60
-                      : Colors.black54,
+                  color: isDark ? Colors.white60 : Colors.black54,
                   fontSize: 13,
                 ),
               ),
@@ -541,40 +527,48 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
 
   Widget _archiveCard(NoteModel note, bool isDark) {
     return GestureDetector(
-      onTap: () {
+      onTap: () async {
         HapticFeedback.selectionClick();
-        // ✅ tap to open note detail
-        if (!note.isLocked) {
-          Navigator.push(
+
+        if (note.isLocked) {
+          final ok = await BiometricService.unlockNote(
             context,
-            MaterialPageRoute(
-              builder: (_) => NoteDetailScreen(
-                note: note,
-                onBack: () => Navigator.pop(context),
-                onEdit: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          AddNoteScreen(editNote: note),
-                    ),
-                  ).then((updated) {
-                    if (updated != null && mounted) {
-                      final idx =
-                      widget.notes.indexOf(note);
-                      if (idx != -1) {
-                        setState(() {
-                          widget.notes[idx] = updated;
-                        });
-                      }
-                    }
-                  });
-                },
-              ),
-            ),
+            note,
+            reason: "Use fingerprint to unlock this note",
           );
+          if (!ok || !mounted) return;
         }
+
+        if (!context.mounted) return;
+        _unfocusSearch();
+
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => NoteDetailScreen(
+              note: note,
+              onBack: () => Navigator.pop(context),
+              onEdit: () {
+                Navigator.pop(context);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => AddNoteScreen(editNote: note),
+                  ),
+                ).then((updated) {
+                  if (updated != null && mounted) {
+                    final idx = widget.notes.indexOf(note);
+                    if (idx != -1) {
+                      setState(() {
+                        widget.notes[idx] = updated;
+                      });
+                    }
+                  }
+                });
+              },
+            ),
+          ),
+        );
       },
       child: _glassBox(
         isDark: isDark,
@@ -603,8 +597,7 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
             ),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xff7F5AF0)
-                    .withOpacity(0.25),
+                color: const Color(0xff7F5AF0).withOpacity(0.25),
                 blurRadius: 18,
                 offset: const Offset(0, 10),
               ),
@@ -623,14 +616,12 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
           style: TextStyle(
             fontWeight: FontWeight.w900,
             fontSize: 14,
-            color: isDark
-                ? Colors.white
-                : const Color(0xff151225),
+            color: isDark ? Colors.white : const Color(0xff151225),
           ),
         ),
         const SizedBox(height: 3),
         Text(
-          "Private archive",
+          "Tap to unlock",
           style: TextStyle(
             color: isDark ? Colors.white60 : Colors.black54,
             fontSize: 11,
@@ -650,15 +641,11 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
           children: [
             Expanded(
               child: Text(
-                note.title.isEmpty
-                    ? "Untitled"
-                    : note.title,
+                note.title.isEmpty ? "Untitled" : note.title,
                 style: TextStyle(
                   fontWeight: FontWeight.w900,
                   fontSize: 15,
-                  color: isDark
-                      ? Colors.white
-                      : const Color(0xff151225),
+                  color: isDark ? Colors.white : const Color(0xff151225),
                 ),
                 overflow: TextOverflow.ellipsis,
                 maxLines: 1,
@@ -677,18 +664,14 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
             Icon(
               Icons.calendar_month_rounded,
               size: 12,
-              color: isDark
-                  ? Colors.white60
-                  : Colors.black45,
+              color: isDark ? Colors.white60 : Colors.black45,
             ),
             const SizedBox(width: 4),
             Text(
               formatDate(note.createdAt),
               style: TextStyle(
                 fontSize: 10,
-                color: isDark
-                    ? Colors.white60
-                    : Colors.black45,
+                color: isDark ? Colors.white60 : Colors.black45,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -697,17 +680,13 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
         const SizedBox(height: 8),
         Expanded(
           child: Text(
-            note.note.isEmpty
-                ? "No content"
-                : note.note,
+            note.note.isEmpty ? "No content" : note.note,
             maxLines: 5,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontSize: 12,
               height: 1.35,
-              color: isDark
-                  ? Colors.white70
-                  : Colors.black87,
+              color: isDark ? Colors.white70 : Colors.black87,
               fontWeight: FontWeight.w500,
             ),
           ),
@@ -717,14 +696,11 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
           children: [
             _categoryChip(note.category, isDark),
             const Spacer(),
-            // ✅ word count
             Text(
               "${note.wordCount}w",
               style: TextStyle(
                 fontSize: 10,
-                color: isDark
-                    ? Colors.white38
-                    : Colors.black38,
+                color: isDark ? Colors.white38 : Colors.black38,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -738,12 +714,9 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
 
   Widget _categoryChip(String category, bool isDark) {
     return Container(
-      padding: const EdgeInsets.symmetric(
-          horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: isDark
-            ? Colors.white.withOpacity(0.08)
-            : Colors.white.withOpacity(0.45),
+        color: isDark ? Colors.white.withOpacity(0.08) : Colors.white.withOpacity(0.45),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(
@@ -751,9 +724,7 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
         style: TextStyle(
           fontSize: 10,
           fontWeight: FontWeight.w700,
-          color: isDark
-              ? Colors.white70
-              : const Color(0xff151225),
+          color: isDark ? Colors.white70 : const Color(0xff151225),
         ),
       ),
     );
@@ -776,14 +747,20 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
           ),
         ),
         const SizedBox(width: 8),
-        // ✅ locked note delete also needs confirmation
         _roundIcon(
           icon: Icons.delete_forever_rounded,
           color: Colors.redAccent,
           onTap: () async {
-            final isDark =
-                Theme.of(context).brightness ==
-                    Brightness.dark;
+            if (note.isLocked) {
+              final ok = await BiometricService.unlockNote(
+                context,
+                note,
+                reason: "Use fingerprint to unlock this note",
+              );
+              if (!ok || !mounted) return;
+            }
+
+            final isDark = Theme.of(context).brightness == Brightness.dark;
             final ok = await confirmDelete(isDark);
             if (!ok || !mounted) return;
             widget.onDelete(note);
@@ -876,8 +853,7 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
               ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black
-                      .withOpacity(isDark ? 0.30 : 0.08),
+                  color: Colors.black.withOpacity(isDark ? 0.30 : 0.08),
                   blurRadius: 24,
                   offset: const Offset(0, 14),
                 ),
@@ -916,10 +892,7 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
             ),
             child: Icon(
               icon,
-              color: color ??
-                  (isDark
-                      ? Colors.white
-                      : const Color(0xff151225)),
+              color: color ?? (isDark ? Colors.white : const Color(0xff151225)),
               size: 22,
             ),
           ),

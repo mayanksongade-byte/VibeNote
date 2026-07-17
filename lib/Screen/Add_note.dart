@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/material.dart';
@@ -27,7 +29,11 @@ class AddNoteScreen extends StatefulWidget {
 }
 
 class _AddNoteScreenState extends State<AddNoteScreen>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, TickerProviderStateMixin {
+  // ============================================================
+  // CORE VARIABLES
+  // ============================================================
+
   int selectedIndex = 0;
   DateTime? reminderTime;
   String selectedCategory = "Study";
@@ -50,7 +56,7 @@ class _AddNoteScreenState extends State<AddNoteScreen>
   File? selectedImage;
   final ImagePicker picker = ImagePicker();
 
-  //  track word and char count
+  // Word and char count
   int wordCount = 0;
   int charCount = 0;
 
@@ -67,12 +73,35 @@ class _AddNoteScreenState extends State<AddNoteScreen>
     const Color(0xffFF7043),
   ];
 
+  // Full Screen Mode
+  bool isFullScreen = false;
+
+  // ============================================================
+  // TEXT FORMATTING VARIABLES (Manual)
+  // ============================================================
+
+  double fontSize = 16.0;
+  Color? textColor;
+  TextAlign textAlign = TextAlign.start;
+
+  // ============================================================
+  // ANIMATION CONTROLLERS
+  // ============================================================
+
+  late final AnimationController _saveButtonController;
+  late final Animation<double> _saveButtonScale;
+  late final AnimationController _micPulseController;
+  late final Animation<double> _micPulseAnimation;
+  late final AnimationController _contentFadeController;
+  late final Animation<double> _contentFadeAnimation;
+  late final AnimationController _fullScreenController;
+  late final Animation<double> _fullScreenAnimation;
+
   @override
   void initState() {
     super.initState();
     speech = stt.SpeechToText();
 
-    // ✅ register observer to stop listening when app goes background
     WidgetsBinding.instance.addObserver(this);
 
     titleFocusNode.addListener(() {
@@ -85,8 +114,52 @@ class _AddNoteScreenState extends State<AddNoteScreen>
       setState(() => isNoteFocused = noteFocusNode.hasFocus);
     });
 
-    // ✅ listen to note text changes for word/char count
     noteController.addListener(_updateCount);
+
+    // Initialize animations
+    _saveButtonController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    )..repeat(reverse: true);
+
+    _saveButtonScale = Tween<double>(begin: 1.0, end: 1.03).animate(
+      CurvedAnimation(
+        parent: _saveButtonController,
+        curve: Curves.easeInOut,
+      ),
+    );
+
+    _micPulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    );
+
+    _micPulseAnimation = Tween<double>(begin: 1.0, end: 1.08).animate(
+      CurvedAnimation(
+        parent: _micPulseController,
+        curve: Curves.easeInOut,
+      ),
+    );
+
+    _contentFadeController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 400),
+    )..forward();
+
+    _contentFadeAnimation = CurvedAnimation(
+      parent: _contentFadeController,
+      curve: Curves.easeOut,
+    );
+
+    _fullScreenController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 400),
+    );
+
+    _fullScreenAnimation = CurvedAnimation(
+      parent: _fullScreenController,
+      curve: Curves.easeInOut,
+    );
 
     final editNote = widget.editNote;
     if (editNote != null) {
@@ -114,15 +187,13 @@ class _AddNoteScreenState extends State<AddNoteScreen>
       } else {
         selectedIndex = colorIndex;
       }
-      _updateCount();
-    }
-    else if (widget.template != null) {
+    } else if (widget.template != null) {
       titleController.text = widget.template.title;
       noteController.text = widget.template.content;
       selectedCategory = widget.template.category;
 
       final colorIndex = noteColors.indexWhere(
-            (c) => c.value == widget.template.color.value,
+        (c) => c.value == widget.template.color.value,
       );
 
       if (colorIndex != -1) {
@@ -131,11 +202,18 @@ class _AddNoteScreenState extends State<AddNoteScreen>
     }
   }
 
-  // ✅ stop listening when app goes to background
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused && isListening) {
-      stopListening();
+  // ============================================================
+  // UPDATE COUNT
+  // ============================================================
+
+  void _setListening(bool value) {
+    if (!mounted) return;
+    setState(() => isListening = value);
+    if (value) {
+      _micPulseController.repeat(reverse: true);
+    } else {
+      _micPulseController.stop();
+      _micPulseController.value = 0;
     }
   }
 
@@ -144,10 +222,230 @@ class _AddNoteScreenState extends State<AddNoteScreen>
     final text = noteController.text;
     setState(() {
       charCount = text.length;
-      wordCount = text.trim().isEmpty
-          ? 0
-          : text.trim().split(RegExp(r'\s+')).length;
+      wordCount =
+          text.trim().isEmpty ? 0 : text.trim().split(RegExp(r'\s+')).length;
     });
+  }
+
+  void _showTextSizeDialog() {
+    double tempSize = fontSize;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: isDark ? const Color(0xff151225) : Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24),
+        ),
+        title: const Text(
+          "Text Size",
+          style: TextStyle(fontWeight: FontWeight.w900),
+        ),
+        content: StatefulBuilder(
+          builder: (context, setState) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    const Text("A", style: TextStyle(fontSize: 12)),
+                    Expanded(
+                      child: Slider(
+                        value: tempSize,
+                        min: 10,
+                        max: 36,
+                        divisions: 26,
+                        label: "${tempSize.round()}px",
+                        activeColor: const Color(0xff7F5AF0),
+                        onChanged: (value) {
+                          setState(() => tempSize = value);
+                        },
+                      ),
+                    ),
+                    Text("A", style: TextStyle(fontSize: 36)),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                FilledButton(
+                  onPressed: () {
+                    setState(() => fontSize = tempSize);
+                    Navigator.pop(context);
+                  },
+                  child: const Text("Apply"),
+                ),
+              ],
+            );
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showTextColorPicker() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    Color selectedColor = textColor ?? (isDark ? Colors.white : Colors.black);
+
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: isDark ? const Color(0xff151225) : Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24),
+        ),
+        title: const Text(
+          "Text Color",
+          style: TextStyle(fontWeight: FontWeight.w900),
+        ),
+        content: StatefulBuilder(
+          builder: (context, setState) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    Colors.black,
+                    Colors.red,
+                    Colors.blue,
+                    Colors.green,
+                    Colors.orange,
+                    Colors.purple,
+                    Colors.pink,
+                    Colors.brown,
+                    Colors.teal,
+                    Colors.indigo,
+                    Colors.amber,
+                    Colors.cyan,
+                  ].map((color) {
+                    final isSelected = selectedColor == color;
+                    return GestureDetector(
+                      onTap: () {
+                        setState(() => selectedColor = color);
+                      },
+                      child: Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: color,
+                          border: Border.all(
+                            color: isSelected
+                                ? const Color(0xff7F5AF0)
+                                : Colors.transparent,
+                            width: 3,
+                          ),
+                        ),
+                        child: isSelected
+                            ? const Icon(
+                                Icons.check_rounded,
+                                color: Colors.white,
+                                size: 18,
+                              )
+                            : null,
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 12),
+                FilledButton(
+                  onPressed: () {
+                    setState(() => textColor = selectedColor);
+                    Navigator.pop(context);
+                  },
+                  child: const Text("Apply"),
+                ),
+              ],
+            );
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showAlignmentDialog() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: isDark ? const Color(0xff151225) : Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24),
+        ),
+        title: const Text(
+          "Text Alignment",
+          style: TextStyle(fontWeight: FontWeight.w900),
+        ),
+        content: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            _buildAlignmentOption(
+                TextAlign.left, Icons.format_align_left_rounded),
+            _buildAlignmentOption(
+                TextAlign.center, Icons.format_align_center_rounded),
+            _buildAlignmentOption(
+                TextAlign.right, Icons.format_align_right_rounded),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAlignmentOption(TextAlign align, IconData icon) {
+    final isSelected = textAlign == align;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return GestureDetector(
+      onTap: () {
+        setState(() => textAlign = align);
+        Navigator.pop(context);
+      },
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? const Color(0xff7F5AF0).withOpacity(0.2)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected ? const Color(0xff7F5AF0) : Colors.transparent,
+            width: 2,
+          ),
+        ),
+        child: Icon(
+          icon,
+          color: isSelected
+              ? const Color(0xff7F5AF0)
+              : (isDark ? Colors.white70 : Colors.black54),
+          size: 28,
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // LIFECYCLE METHODS
+  // ============================================================
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused && isListening) {
+      stopListening();
+    }
   }
 
   @override
@@ -159,8 +457,16 @@ class _AddNoteScreenState extends State<AddNoteScreen>
     noteController.dispose();
     titleFocusNode.dispose();
     noteFocusNode.dispose();
+    _saveButtonController.dispose();
+    _micPulseController.dispose();
+    _contentFadeController.dispose();
+    _fullScreenController.dispose();
     super.dispose();
   }
+
+  // ============================================================
+  // UI HELPER METHODS
+  // ============================================================
 
   void showPremiumSnackBar({
     required String message,
@@ -223,6 +529,10 @@ class _AddNoteScreenState extends State<AddNoteScreen>
     );
   }
 
+  // ============================================================
+  // VOICE TO NOTE
+  // ============================================================
+
   Future<void> startListening() async {
     HapticFeedback.lightImpact();
 
@@ -243,12 +553,12 @@ class _AddNoteScreenState extends State<AddNoteScreen>
         onStatus: (status) {
           if (!mounted) return;
           if (status == "done" || status == "notListening") {
-            if (mounted) setState(() => isListening = false);
+            _setListening(false);
           }
         },
         onError: (error) {
           if (!mounted) return;
-          setState(() => isListening = false);
+          _setListening(false);
           showPremiumSnackBar(
             message: "Voice typing stopped. Please try again.",
             icon: Icons.mic_off_rounded,
@@ -270,7 +580,7 @@ class _AddNoteScreenState extends State<AddNoteScreen>
       oldSpeechText = noteController.text.trim();
 
       if (!mounted) return;
-      setState(() => isListening = true);
+      _setListening(true);
 
       showPremiumSnackBar(
         message: "Listening... speak your note now.",
@@ -284,12 +594,11 @@ class _AddNoteScreenState extends State<AddNoteScreen>
         onResult: (result) {
           if (!mounted) return;
           final spoken = result.recognizedWords.trim();
-          // ✅ prevent duplicate text on partial results
           final newText = oldSpeechText.isEmpty
               ? spoken
               : spoken.isEmpty
-              ? oldSpeechText
-              : "$oldSpeechText $spoken";
+                  ? oldSpeechText
+                  : "$oldSpeechText $spoken";
 
           noteController.text = newText;
           noteController.selection = TextSelection.fromPosition(
@@ -299,7 +608,7 @@ class _AddNoteScreenState extends State<AddNoteScreen>
       );
     } catch (_) {
       if (!mounted) return;
-      setState(() => isListening = false);
+      _setListening(false);
       showPremiumSnackBar(
         message: "Voice typing could not start. Please try again.",
         icon: Icons.mic_off_rounded,
@@ -311,13 +620,17 @@ class _AddNoteScreenState extends State<AddNoteScreen>
   Future<void> stopListening() async {
     await speech.stop();
     if (!mounted) return;
-    setState(() => isListening = false);
+    _setListening(false);
     showPremiumSnackBar(
       message: "Voice to Note stopped.",
       icon: Icons.check_circle_rounded,
       color: const Color(0xff2CB67D),
     );
   }
+
+  // ============================================================
+  // REMINDER METHODS
+  // ============================================================
 
   Future<void> pickReminder() async {
     HapticFeedback.lightImpact();
@@ -390,7 +703,6 @@ class _AddNoteScreenState extends State<AddNoteScreen>
     );
   }
 
-  // ✅  clear reminder
   void clearReminder() {
     setState(() => reminderTime = null);
     showPremiumSnackBar(
@@ -399,6 +711,10 @@ class _AddNoteScreenState extends State<AddNoteScreen>
       color: Colors.orangeAccent,
     );
   }
+
+  // ============================================================
+  // COLOR PICKER
+  // ============================================================
 
   Future<void> pickCustomColor() async {
     Color tempColor = noteColors[selectedIndex];
@@ -501,10 +817,13 @@ class _AddNoteScreenState extends State<AddNoteScreen>
     });
   }
 
+  // ============================================================
+  // IMAGE PICKER
+  // ============================================================
+
   Future<void> pickImage() async {
     HapticFeedback.lightImpact();
 
-    // ✅ show image source dialog
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     final source = await showDialog<ImageSource>(
@@ -572,6 +891,10 @@ class _AddNoteScreenState extends State<AddNoteScreen>
     if (reminderTime == null) return "Set Reminder";
     return "${reminderTime!.day}/${reminderTime!.month}/${reminderTime!.year}  ${reminderTime!.hour}:${reminderTime!.minute.toString().padLeft(2, '0')}";
   }
+
+  // ============================================================
+  // SAVE NOTE
+  // ============================================================
 
   Future<void> saveNote() async {
     HapticFeedback.mediumImpact();
@@ -649,8 +972,7 @@ class _AddNoteScreenState extends State<AddNoteScreen>
 
         final notificationTitle = "📝 VibeNote • Reminder";
 
-        final notificationBody =
-            "${categoryEmoji(selectedCategory)} $title\n"
+        final notificationBody = "${categoryEmoji(selectedCategory)} $title\n"
             "────────────────\n"
             "$preview\n\n"
             "Tap to open your note";
@@ -674,7 +996,7 @@ class _AddNoteScreenState extends State<AddNoteScreen>
         return;
       }
     } else {
-     await NotificationService.cancelNotification(targetNoteId);
+      await NotificationService.cancelNotification(targetNoteId);
     }
 
     if (!mounted) return;
@@ -699,6 +1021,332 @@ class _AddNoteScreenState extends State<AddNoteScreen>
     );
   }
 
+  // ============================================================
+  // FULL SCREEN MODE
+  // ============================================================
+
+  void _toggleFullScreen() {
+    setState(() {
+      isFullScreen = !isFullScreen;
+    });
+    if (isFullScreen) {
+      _fullScreenController.forward();
+      FocusManager.instance.primaryFocus?.unfocus();
+    } else {
+      _fullScreenController.reverse();
+    }
+    HapticFeedback.mediumImpact();
+  }
+
+  Widget _buildFullScreenButton() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return GestureDetector(
+      onTap: _toggleFullScreen,
+      child: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: isDark
+              ? Colors.white.withOpacity(0.08)
+              : Colors.white.withOpacity(0.50),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Icon(
+          isFullScreen
+              ? Icons.fullscreen_exit_rounded
+              : Icons.fullscreen_rounded,
+          color: isDark ? Colors.white : const Color(0xff151225),
+          size: 24,
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // ANIMATED WIDGETS
+  // ============================================================
+
+  Widget _buildAnimatedMicButton() {
+    return AnimatedBuilder(
+      animation: _micPulseAnimation,
+      builder: (context, child) {
+        return Transform.scale(
+          scale: _micPulseAnimation.value,
+          child: Container(
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                colors: isListening
+                    ? [Colors.redAccent, Colors.red.shade700]
+                    : [const Color(0xff7F5AF0), const Color(0xffFF6B9A)],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color:
+                      (isListening ? Colors.redAccent : const Color(0xff7F5AF0))
+                          .withOpacity(0.4),
+                  blurRadius: 20,
+                  spreadRadius: isListening ? 10 : 5,
+                ),
+              ],
+            ),
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(50),
+                onTap: () async {
+                  if (!isListening) {
+                    await startListening();
+                  } else {
+                    await stopListening();
+                  }
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(16),
+                  child: Icon(
+                    isListening ? Icons.stop_rounded : Icons.mic_rounded,
+                    color: Colors.white,
+                    size: 30,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildAnimatedSaveButton() {
+    return AnimatedBuilder(
+      animation: _saveButtonScale,
+      builder: (context, child) {
+        return Transform.scale(
+          scale: _saveButtonScale.value,
+          child: _SaveButton(
+            isSaving: isSaving,
+            text: widget.editNote == null ? "Save Note" : "Update Note",
+            onTap: isSaving ? () {} : saveNote,
+          ),
+        );
+      },
+    );
+  }
+
+  // ============================================================
+  // CATEGORY POPUP (Glass UI)
+  // ============================================================
+
+  Widget _buildCategoryDropdown(bool isDark) {
+    return GestureDetector(
+      onTap: () {
+        _showGlassCategoryPicker(isDark);
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: isDark
+              ? Colors.white.withOpacity(0.08)
+              : Colors.white.withOpacity(0.62),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: Colors.white.withOpacity(0.22)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(isDark ? 0.18 : 0.06),
+              blurRadius: 14,
+              offset: const Offset(0, 7),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              height: 34,
+              width: 34,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: _categoryColor(selectedCategory).withOpacity(0.16),
+              ),
+              child: Icon(
+                _categoryIcon(selectedCategory),
+                color: _categoryColor(selectedCategory),
+                size: 19,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                selectedCategory,
+                style: TextStyle(
+                  color: isDark ? Colors.white : const Color(0xff151225),
+                  fontWeight: FontWeight.w900,
+                  fontSize: 15,
+                ),
+              ),
+            ),
+            Icon(
+              Icons.keyboard_arrow_down_rounded,
+              color: isDark ? Colors.white : const Color(0xff151225),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showGlassCategoryPicker(bool isDark) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) {
+        return ClipRRect(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 30),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? const Color(0xff151225).withOpacity(0.96)
+                    : Colors.white.withOpacity(0.96),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(28),
+                ),
+                border: Border(
+                  top: BorderSide(color: Colors.white.withOpacity(0.20)),
+                ),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: isDark ? Colors.white24 : Colors.black12,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                  const Text(
+                    "Select Category",
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  ...categories.map((category) {
+                    final isSelected = selectedCategory == category;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(20),
+                        onTap: () {
+                          HapticFeedback.selectionClick();
+                          setState(() => selectedCategory = category);
+                          Navigator.pop(context);
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 14,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? const Color(0xff7F5AF0).withOpacity(0.16)
+                                : (isDark
+                                    ? Colors.white.withOpacity(0.06)
+                                    : Colors.black.withOpacity(0.03)),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: isSelected
+                                  ? const Color(0xff7F5AF0).withOpacity(0.45)
+                                  : Colors.white.withOpacity(0.12),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                height: 34,
+                                width: 34,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: _categoryColor(category)
+                                      .withOpacity(0.16),
+                                ),
+                                child: Icon(
+                                  _categoryIcon(category),
+                                  color: _categoryColor(category),
+                                  size: 19,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  category,
+                                  style: TextStyle(
+                                    color: isDark
+                                        ? Colors.white
+                                        : const Color(0xff151225),
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 15,
+                                  ),
+                                ),
+                              ),
+                              if (isSelected)
+                                const Icon(
+                                  Icons.check_circle_rounded,
+                                  color: Color(0xff7F5AF0),
+                                  size: 20,
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // ============================================================
+  // LISTENING INDICATOR
+  // ============================================================
+
+  Widget _buildListeningIndicator(bool isDark) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.red.withOpacity(isDark ? 0.16 : 0.12),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.red.withOpacity(0.28)),
+      ),
+      child: const Row(
+        children: [
+          Icon(Icons.mic_rounded, color: Colors.red),
+          SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              "Voice to Note is ON — speak now...",
+              style: TextStyle(color: Colors.red, fontWeight: FontWeight.w900),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ============================================================
+  // BUILD METHOD
+  // ============================================================
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -706,9 +1354,8 @@ class _AddNoteScreenState extends State<AddNoteScreen>
 
     return Scaffold(
       resizeToAvoidBottomInset: true,
-      backgroundColor: isDark
-          ? const Color(0xff090A12)
-          : const Color(0xffF8F5FF),
+      backgroundColor:
+          isDark ? const Color(0xff090A12) : const Color(0xffF8F5FF),
       body: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
@@ -728,414 +1375,542 @@ class _AddNoteScreenState extends State<AddNoteScreen>
           ),
         ),
         child: SafeArea(
-          child: Stack(
-            children: [
-              Positioned(
-                top: -70,
-                right: -50,
-                child: _GlowBlob(
-                  color: const Color(0xff7F5AF0).withOpacity(0.35),
-                  size: 210,
+          child: isFullScreen
+              ? _buildFullScreenContent(isDark, selectedColor)
+              : _buildNormalContent(isDark, selectedColor),
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // NORMAL CONTENT
+  // ============================================================
+
+  Widget _buildNormalContent(bool isDark, Color selectedColor) {
+    return Stack(
+      children: [
+        Positioned(
+          top: -70,
+          right: -50,
+          child: _GlowBlob(
+            color: const Color(0xff7F5AF0).withOpacity(0.35),
+            size: 210,
+          ),
+        ),
+        Positioned(
+          bottom: 80,
+          left: -70,
+          child: _GlowBlob(
+            color: const Color(0xffFF6B9A).withOpacity(0.25),
+            size: 230,
+          ),
+        ),
+        Column(
+          children: [
+            _PremiumHeader(
+              title: widget.editNote == null ? "Create Note" : "Edit Note",
+              subtitle: widget.editNote == null
+                  ? "Capture your ideas in VibeNote"
+                  : "Update your note",
+              isDark: isDark,
+              onBack: () {
+                if (isFullScreen) {
+                  setState(() => isFullScreen = false);
+                } else {
+                  Navigator.pop(context);
+                }
+              },
+              fullScreenButton: _buildFullScreenButton(),
+            ),
+            Expanded(
+              child: SingleChildScrollView(
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                padding: EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  top: 10,
+                  bottom: MediaQuery.of(context).viewInsets.bottom + 24,
                 ),
-              ),
-              Positioned(
-                bottom: 80,
-                left: -70,
-                child: _GlowBlob(
-                  color: const Color(0xffFF6B9A).withOpacity(0.25),
-                  size: 230,
-                ),
-              ),
-              Column(
-                children: [
-                  _PremiumHeader(
-                    title: widget.editNote == null
-                        ? "Create Note"
-                        : "Edit Note",
-                    subtitle: widget.editNote == null
-                        ? "Capture your ideas in VibeNote"
-                        : "Update your note",
-                    isDark: isDark,
-                    onBack: () => Navigator.pop(context),
-                  ),
-                  Expanded(
-                    child: SingleChildScrollView(
-                      keyboardDismissBehavior:
-                          ScrollViewKeyboardDismissBehavior.onDrag,
-                      padding: EdgeInsets.only(
-                        left: 16,
-                        right: 16,
-                        top: 10,
-                        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Title field
-                          RainbowEdgeLighting(
-                            enabled: isTitleFocused,
-                            radius: 24,
-                            child: _GlassField(
-                              isDark: isDark,
-                              child: TextField(
-                                focusNode: titleFocusNode,
-                                controller: titleController,
-                                autofocus: widget.editNote == null,
-                                textCapitalization:
-                                    TextCapitalization.sentences,
-                                style: TextStyle(
-                                  color: isDark
-                                      ? Colors.white
-                                      : const Color(0xff151225),
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.w900,
-                                ),
-                                decoration: InputDecoration(
-                                  hintText: "Note title",
-                                  hintStyle: TextStyle(
-                                    color: isDark
-                                        ? Colors.white38
-                                        : Colors.black38,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                  prefixIcon: Icon(
-                                    Icons.title_rounded,
-                                    color: isDark
-                                        ? Colors.white54
-                                        : const Color(0xff7F5AF0),
-                                  ),
-                                  border: InputBorder.none,
-                                ),
+                child: FadeTransition(
+                  opacity: _contentFadeAnimation,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Title field
+                      RainbowEdgeLighting(
+                        enabled: isTitleFocused,
+                        radius: 24,
+                        child: _GlassField(
+                          isDark: isDark,
+                          child: TextField(
+                            focusNode: titleFocusNode,
+                            controller: titleController,
+                            autofocus: widget.editNote == null,
+                            textCapitalization: TextCapitalization.sentences,
+                            style: TextStyle(
+                              color: isDark
+                                  ? Colors.white
+                                  : const Color(0xff151225),
+                              fontSize: 22,
+                              fontWeight: FontWeight.w900,
+                            ),
+                            decoration: InputDecoration(
+                              hintText: "Note title",
+                              hintStyle: TextStyle(
+                                color: isDark ? Colors.white38 : Colors.black38,
+                                fontWeight: FontWeight.w800,
                               ),
+                              prefixIcon: Icon(
+                                Icons.title_rounded,
+                                color: isDark
+                                    ? Colors.white54
+                                    : const Color(0xff7F5AF0),
+                              ),
+                              border: InputBorder.none,
                             ),
                           ),
-                          const SizedBox(height: 16),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
 
-                          // Note field
-                          RainbowEdgeLighting(
-                            enabled: isNoteFocused,
-                            radius: 28,
-                            child: _GlassField(
-                              isDark: isDark,
-                              padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
-                              child: Column(
-                                children: [
-                                  SizedBox(
-                                    height: 240,
-                                    child: TextField(
-                                      focusNode: noteFocusNode,
-                                      controller: noteController,
-                                      maxLines: null,
-                                      expands: true,
-                                      keyboardType: TextInputType.multiline,
-                                      textCapitalization:
-                                          TextCapitalization.sentences,
-                                      textAlignVertical: TextAlignVertical.top,
-                                      style: TextStyle(
-                                        color: isDark
-                                            ? Colors.white
-                                            : const Color(0xff151225),
-                                        fontSize: 15.5,
-                                        height: 1.45,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                      decoration: InputDecoration(
-                                        hintText: "Write your note...",
-                                        hintStyle: TextStyle(
-                                          color: isDark
-                                              ? Colors.white38
-                                              : Colors.black38,
-                                        ),
-                                        border: InputBorder.none,
-                                      ),
-                                    ),
+                      // Note field with formatting
+                      RainbowEdgeLighting(
+                        enabled: isNoteFocused,
+                        radius: 28,
+                        child: _GlassField(
+                          isDark: isDark,
+                          padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
+                          child: Column(
+                            children: [
+                              SizedBox(
+                                height: 240,
+                                child: TextField(
+                                  focusNode: noteFocusNode,
+                                  controller: noteController,
+                                  maxLines: null,
+                                  expands: true,
+                                  keyboardType: TextInputType.multiline,
+                                  textCapitalization:
+                                      TextCapitalization.sentences,
+                                  textAlignVertical: TextAlignVertical.top,
+                                  style: TextStyle(
+                                    color: textColor ??
+                                        (isDark ? Colors.white : Colors.black),
+                                    fontSize: fontSize,
+                                    height: 1.45,
+                                    fontWeight: FontWeight.w500,
                                   ),
-                                  // ✅ word and char count row
-                                  Padding(
-                                    padding: const EdgeInsets.only(
-                                      top: 6,
-                                      bottom: 4,
+                                  decoration: InputDecoration(
+                                    hintText: "Write your note...",
+                                    hintStyle: TextStyle(
+                                      color: isDark
+                                          ? Colors.white38
+                                          : Colors.black38,
+                                      fontSize: fontSize,
                                     ),
-                                    child: Row(
-                                      mainAxisAlignment: MainAxisAlignment.end,
-                                      children: [
-                                        Icon(
-                                          Icons.text_fields_rounded,
-                                          size: 13,
-                                          color: isDark
-                                              ? Colors.white38
-                                              : Colors.black38,
+                                    border: InputBorder.none,
+                                  ),
+                                  textAlign: textAlign,
+                                ),
+                              ),
+                              // Word and char count row
+                              Padding(
+                                padding: const EdgeInsets.only(
+                                  top: 6,
+                                  bottom: 4,
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.end,
+                                  children: [
+                                    Icon(
+                                      Icons.text_fields_rounded,
+                                      size: 13,
+                                      color: isDark
+                                          ? Colors.white38
+                                          : Colors.black38,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      "$wordCount words · $charCount chars",
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: isDark
+                                            ? Colors.white38
+                                            : Colors.black38,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+
+                      // Category
+                      _SectionTitle(
+                        title: "Category",
+                        icon: Icons.category_rounded,
+                        isDark: isDark,
+                      ),
+                      const SizedBox(height: 10),
+                      _buildCategoryDropdown(isDark),
+                      const SizedBox(height: 18),
+
+                      // Media
+                      _SectionTitle(
+                        title: "Media",
+                        icon: Icons.image_rounded,
+                        isDark: isDark,
+                      ),
+                      const SizedBox(height: 10),
+                      _ActionButton(
+                        text: selectedImage == null
+                            ? "Add Image"
+                            : "Change Image",
+                        icon: Icons.image_rounded,
+                        gradient: const [
+                          Color(0xff7F5AF0),
+                          Color(0xffFF6B9A),
+                        ],
+                        onTap: pickImage,
+                      ),
+                      if (selectedImage != null) ...[
+                        const SizedBox(height: 14),
+                        _buildImagePreview(),
+                      ],
+                      const SizedBox(height: 18),
+
+                      // Color picker
+                      _SectionTitle(
+                        title: "Pick Color",
+                        icon: Icons.palette_rounded,
+                        isDark: isDark,
+                      ),
+                      const SizedBox(height: 12),
+                      _buildColorPicker(isDark),
+                      const SizedBox(height: 20),
+
+                      const SizedBox(height: 12),
+
+                      // Reminder button
+                      _ActionButton(
+                        text: reminderTime == null
+                            ? "Set Reminder"
+                            : "📅 ${reminderLabel()}",
+                        icon: Icons.notifications_active_rounded,
+                        gradient: const [
+                          Color(0xff7F5AF0),
+                          Color(0xff00C2FF),
+                        ],
+                        onTap: pickReminder,
+                      ),
+
+                      if (reminderTime != null) ...[
+                        const SizedBox(height: 10),
+                        _ActionButton(
+                          text: "Clear Reminder",
+                          icon: Icons.alarm_off_rounded,
+                          gradient: const [
+                            Color(0xffFF6B9A),
+                            Color(0xffFF4B2B),
+                          ],
+                          onTap: clearReminder,
+                        ),
+                      ],
+
+                      const SizedBox(height: 24),
+
+                      // Save button
+                      _buildAnimatedSaveButton(),
+                      const SizedBox(height: 12),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  // ============================================================
+  // FULL SCREEN CONTENT
+  // ============================================================
+
+  Widget _buildFullScreenContent(bool isDark, Color selectedColor) {
+    return AnimatedBuilder(
+      animation: _fullScreenAnimation,
+      builder: (context, child) {
+        return Opacity(
+          opacity: _fullScreenAnimation.value,
+          child: Transform.scale(
+            scale: 0.9 + (0.1 * _fullScreenAnimation.value),
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: isDark
+                      ? [
+                          const Color(0xff090A12),
+                          selectedColor.withOpacity(0.25),
+                          const Color(0xff17122B),
+                        ]
+                      : [
+                          const Color(0xffFFF9FD),
+                          selectedColor.withOpacity(0.45),
+                          const Color(0xffF3ECFF),
+                        ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+              child: Column(
+                children: [
+                  _PremiumHeader(
+                    title: "Full Screen",
+                    subtitle: "Write without distractions",
+                    isDark: isDark,
+                    onBack: _toggleFullScreen,
+                    fullScreenButton: _buildFullScreenButton(),
+                  ),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        children: [
+                          // Full screen note editor
+                          Expanded(
+                            child: RainbowEdgeLighting(
+                              enabled: isNoteFocused,
+                              radius: 28,
+                              child: _GlassField(
+                                isDark: isDark,
+                                padding:
+                                    const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                                child: Column(
+                                  children: [
+                                    Expanded(
+                                      child: TextField(
+                                        focusNode: noteFocusNode,
+                                        controller: noteController,
+                                        maxLines: null,
+                                        expands: true,
+                                        keyboardType: TextInputType.multiline,
+                                        textCapitalization:
+                                            TextCapitalization.sentences,
+                                        textAlignVertical:
+                                            TextAlignVertical.top,
+                                        style: TextStyle(
+                                          color: textColor ??
+                                              (isDark
+                                                  ? Colors.white
+                                                  : Colors.black),
+                                          fontSize: fontSize + 4,
+                                          height: 1.6,
+                                          fontWeight: FontWeight.w500,
                                         ),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          "$wordCount words · $charCount chars",
-                                          style: TextStyle(
-                                            fontSize: 11,
+                                        decoration: InputDecoration(
+                                          hintText: "Write your note...",
+                                          hintStyle: TextStyle(
                                             color: isDark
                                                 ? Colors.white38
                                                 : Colors.black38,
-                                            fontWeight: FontWeight.w600,
+                                            fontSize: fontSize + 4,
                                           ),
+                                          border: InputBorder.none,
                                         ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 18),
-
-                          // Category
-                          _SectionTitle(
-                            title: "Category",
-                            icon: Icons.category_rounded,
-                            isDark: isDark,
-                          ),
-                          const SizedBox(height: 10),
-                          _GlassField(
-                            isDark: isDark,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 6,
-                            ),
-                            child: DropdownButtonHideUnderline(
-                              child: DropdownButton<String>(
-                                value:
-                                    categories.any((e) => e == selectedCategory)
-                                    ? selectedCategory
-                                    : "Study",
-                                isExpanded: true,
-                                dropdownColor: isDark
-                                    ? const Color(0xff151522)
-                                    : Colors.white,
-                                icon: Icon(
-                                  Icons.keyboard_arrow_down_rounded,
-                                  color: isDark
-                                      ? Colors.white
-                                      : const Color(0xff151225),
-                                ),
-                                items: categories.map((category) {
-                                  return DropdownMenuItem<String>(
-                                    value: category,
-                                    child: Row(
-                                      children: [
-                                        Container(
-                                          height: 34,
-                                          width: 34,
-                                          decoration: BoxDecoration(
-                                            shape: BoxShape.circle,
-                                            color: _categoryColor(
-                                              category,
-                                            ).withOpacity(0.16),
-                                          ),
-                                          child: Icon(
-                                            _categoryIcon(category),
-                                            color: _categoryColor(category),
-                                            size: 19,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 12),
-                                        Text(
-                                          category,
-                                          style: TextStyle(
-                                            color: isDark
-                                                ? Colors.white
-                                                : const Color(0xff151225),
-                                            fontWeight: FontWeight.w900,
-                                            fontSize: 15,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  );
-                                }).toList(),
-                                onChanged: (value) {
-                                  if (value == null) return;
-                                  HapticFeedback.selectionClick();
-                                  setState(() => selectedCategory = value);
-                                },
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 18),
-
-                          // Media
-                          _SectionTitle(
-                            title: "Media",
-                            icon: Icons.image_rounded,
-                            isDark: isDark,
-                          ),
-                          const SizedBox(height: 10),
-                          _ActionButton(
-                            text: selectedImage == null
-                                ? "Add Image"
-                                : "Change Image",
-                            icon: Icons.image_rounded,
-                            gradient: const [
-                              Color(0xff7F5AF0),
-                              Color(0xffFF6B9A),
-                            ],
-                            onTap: pickImage,
-                          ),
-                          if (selectedImage != null) ...[
-                            const SizedBox(height: 14),
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(24),
-                              child: Stack(
-                                children: [
-                                  Image.file(
-                                    selectedImage!,
-                                    height: 190,
-                                    width: double.infinity,
-                                    fit: BoxFit.cover,
-                                    errorBuilder:
-                                        (context, error, stackTrace) =>
-                                            const SizedBox.shrink(),
-                                  ),
-                                  Positioned(
-                                    right: 12,
-                                    top: 12,
-                                    child: GestureDetector(
-                                      onTap: () {
-                                        HapticFeedback.lightImpact();
-                                        setState(() => selectedImage = null);
-                                        showPremiumSnackBar(
-                                          message: "Image removed.",
-                                          icon: Icons.delete_outline_rounded,
-                                          color: Colors.orangeAccent,
-                                        );
-                                      },
-                                      child: Container(
-                                        padding: const EdgeInsets.all(8),
-                                        decoration: BoxDecoration(
-                                          color: Colors.black.withOpacity(0.55),
-                                          shape: BoxShape.circle,
-                                        ),
-                                        child: const Icon(
-                                          Icons.close_rounded,
-                                          color: Colors.white,
-                                          size: 20,
-                                        ),
+                                        textAlign: textAlign,
                                       ),
                                     ),
-                                  ),
-                                ],
+                                    // Stats with Voice Button
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 8),
+                                      child: Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Text(
+                                            "$wordCount words · $charCount chars",
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: isDark
+                                                  ? Colors.white38
+                                                  : Colors.black38,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                          _buildAnimatedMicButton(),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
-                          ],
-                          const SizedBox(height: 18),
-
-                          // Color picker
-                          _SectionTitle(
-                            title: "Pick Color",
-                            icon: Icons.palette_rounded,
-                            isDark: isDark,
                           ),
+
                           const SizedBox(height: 12),
-                          SizedBox(
-                            height: 58,
-                            child: ListView.builder(
-                              scrollDirection: Axis.horizontal,
-                              itemCount: noteColors.length + 1,
-                              itemBuilder: (context, index) {
-                                if (index == noteColors.length) {
-                                  return _ColorPickerAddButton(
-                                    onTap: pickCustomColor,
-                                  );
-                                }
-                                final isSelected = selectedIndex == index;
-                                return _ColorCircle(
-                                  color: noteColors[index],
-                                  isSelected: isSelected,
-                                  onTap: () {
-                                    HapticFeedback.selectionClick();
-                                    setState(() => selectedIndex = index);
-                                  },
-                                );
-                              },
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-
-                          // Voice to Note
-                          _ActionButton(
-                            text: isListening
-                                ? "Stop Listening"
-                                : "Voice To Note",
-                            icon: isListening
-                                ? Icons.graphic_eq_rounded
-                                : Icons.mic_none_rounded,
-                            gradient: isListening
-                                ? const [Color(0xffFF6B9A), Color(0xffFFB86C)]
-                                : const [Color(0xff2CB67D), Color(0xff00C2FF)],
-                            onTap: () async {
-                              if (!isListening) {
-                                await startListening();
-                              } else {
-                                await stopListening();
-                              }
-                            },
-                          ),
-                          if (isListening) ...[
-                            const SizedBox(height: 10),
-                            _ListeningIndicator(isDark: isDark),
-                          ],
-                          const SizedBox(height: 12),
-
-                          // Reminder button
-                          _ActionButton(
-                            text: reminderTime == null
-                                ? "Set Reminder"
-                                : "📅 ${reminderLabel()}",
-                            icon: Icons.notifications_active_rounded,
-                            gradient: const [
-                              Color(0xff7F5AF0),
-                              Color(0xff00C2FF),
-                            ],
-                            onTap: pickReminder,
-                          ),
-
-                          // ✅ clear reminder button
-                          if (reminderTime != null) ...[
-                            const SizedBox(height: 10),
-                            _ActionButton(
-                              text: "Clear Reminder",
-                              icon: Icons.alarm_off_rounded,
-                              gradient: const [
-                                Color(0xffFF6B9A),
-                                Color(0xffFF4B2B),
-                              ],
-                              onTap: clearReminder,
-                            ),
-                          ],
-
-                          const SizedBox(height: 24),
 
                           // Save button
-                          _SaveButton(
-                            isSaving: isSaving,
-                            text: widget.editNote == null
-                                ? "Save Note"
-                                : "Update Note",
-                            // ✅ FIXED: use empty lambda instead of null
-                            onTap: isSaving ? () {} : saveNote,
-                          ),
-                          const SizedBox(height: 12),
+                          _buildAnimatedSaveButton(),
+                          const SizedBox(height: 8),
                         ],
                       ),
                     ),
                   ),
                 ],
               ),
-            ],
+            ),
           ),
+        );
+      },
+    );
+  }
+
+  // ============================================================
+  // BUILD HELPER WIDGETS
+  // ============================================================
+
+  Widget _buildColorPicker(bool isDark) {
+    return SizedBox(
+      height: 58,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        itemCount: noteColors.length + 1,
+        itemBuilder: (context, index) {
+          if (index == noteColors.length) {
+            return _ColorPickerAddButton(
+              onTap: pickCustomColor,
+            );
+          }
+          final isSelected = selectedIndex == index;
+          return _ColorCircle(
+            color: noteColors[index],
+            isSelected: isSelected,
+            onTap: () {
+              HapticFeedback.selectionClick();
+              setState(() => selectedIndex = index);
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildImagePreview() {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.8, end: 1.0),
+      duration: const Duration(milliseconds: 400),
+      curve: Curves.easeOutCubic,
+      builder: (context, scale, child) {
+        return Transform.scale(
+          scale: scale,
+          child: child,
+        );
+      },
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: Stack(
+          children: [
+            GestureDetector(
+              onTap: () {
+                showDialog(
+                  context: context,
+                  builder: (_) => Dialog(
+                    backgroundColor: Colors.transparent,
+                    child: InteractiveViewer(
+                      minScale: 0.5,
+                      maxScale: 4.0,
+                      child: Image.file(
+                        selectedImage!,
+                        fit: BoxFit.contain,
+                      ),
+                    ),
+                  ),
+                );
+              },
+              child: Image.file(
+                selectedImage!,
+                height: 190,
+                width: double.infinity,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) =>
+                    const SizedBox.shrink(),
+              ),
+            ),
+            Positioned(
+              right: 12,
+              top: 12,
+              child: GestureDetector(
+                onTap: () {
+                  HapticFeedback.lightImpact();
+                  setState(() => selectedImage = null);
+                  showPremiumSnackBar(
+                    message: "Image removed.",
+                    icon: Icons.delete_outline_rounded,
+                    color: Colors.orangeAccent,
+                  );
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.55),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.close_rounded,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              bottom: 12,
+              right: 12,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.55),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.zoom_in_rounded,
+                      color: Colors.white,
+                      size: 14,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      "Tap to zoom",
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
+// ============================================================
+// HELPER WIDGETS (From Original Code)
+// ============================================================
 
 IconData _categoryIcon(String category) {
   switch (category.toLowerCase()) {
@@ -1167,18 +1942,19 @@ Color _categoryColor(String category) {
   }
 }
 
-
 class _PremiumHeader extends StatelessWidget {
   final String title;
   final String subtitle;
   final bool isDark;
   final VoidCallback onBack;
+  final Widget? fullScreenButton;
 
   const _PremiumHeader({
     required this.title,
     required this.subtitle,
     required this.isDark,
     required this.onBack,
+    this.fullScreenButton,
   });
 
   @override
@@ -1220,8 +1996,11 @@ class _PremiumHeader extends StatelessWidget {
               ],
             ),
           ),
-          _GlassCircleIcon(icon: Icons.auto_awesome_rounded, isDark: isDark),
-        ],
+          if (fullScreenButton != null) ...[
+            fullScreenButton!,
+            const SizedBox(width: 8),
+          ],
+          _GlassCircleIcon(icon: Icons.auto_awesome_rounded, isDark: isDark),       ],
       ),
     );
   }
@@ -1414,9 +2193,8 @@ class _SaveButton extends StatelessWidget {
             borderRadius: BorderRadius.circular(24),
             boxShadow: [
               BoxShadow(
-                color: const Color(
-                  0xff7F5AF0,
-                ).withOpacity(isSaving ? 0.10 : 0.35),
+                color:
+                    const Color(0xff7F5AF0).withOpacity(isSaving ? 0.10 : 0.35),
                 blurRadius: 24,
                 offset: const Offset(0, 12),
               ),
@@ -1544,37 +2322,6 @@ class _ColorPickerAddButton extends StatelessWidget {
           ],
         ),
         child: const Icon(Icons.add_rounded, color: Colors.white, size: 28),
-      ),
-    );
-  }
-}
-
-class _ListeningIndicator extends StatelessWidget {
-  final bool isDark;
-
-  const _ListeningIndicator({required this.isDark});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.red.withOpacity(isDark ? 0.16 : 0.12),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.red.withOpacity(0.28)),
-      ),
-      child: const Row(
-        children: [
-          Icon(Icons.mic_rounded, color: Colors.red),
-          SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              "Voice to Note is ON — speak now...",
-              style: TextStyle(color: Colors.red, fontWeight: FontWeight.w900),
-            ),
-          ),
-        ],
       ),
     );
   }
