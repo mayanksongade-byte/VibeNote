@@ -1,32 +1,36 @@
-# VibeNote – Every Thought Has a Vibe
+# VibeNote
 
-A modern Flutter Notes App built with Flutter & Dart.
+Every Thought Has a Vibe.
+
+A modern Flutter note-taking application with beautiful UI, biometric security, reminders, voice notes, templates, and much more.
 
 ## Features
 
-* Create, Edit & Delete Notes
-* PIN Protected Notes
-* Fingerprint Unlock
-* Reminder Notifications
-* Voice to Text
-* Image Notes
-* Categories
-* Favourite Notes
-* Archive Notes
-* Templates
-* Dark Mode
-* Beautiful Modern UI
+- Create & Edit Notes
+- PIN & Biometric Lock
+- Voice to Note
+- Reminder Notifications
+- Favourite Notes
+- Pinned Notes
+- Archive
+- Image Notes
+- Smart Categories
+- Templates
+- Dark Mode
+- Modern Glassmorphism UI
 
 ## Tech Stack
 
-* Flutter
-* Dart
-* SharedPreferences
-* Local Notifications
-* Local Auth (Fingerprint)
+- Flutter
+- Dart
+- Firebase
+- Shared Preferences
+- Local Notifications
+
+## Demo
+
+Demo video coming soon.
 
 ## Developer
 
 Mayank Songade
-
-GitHub: https://github.com/mayanksongade-byte
