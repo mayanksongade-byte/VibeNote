@@ -59,7 +59,6 @@ It combines a visually rich glassmorphism interface with practical features such
 |------------|-------|
 | **Flutter** | Cross-platform mobile development |
 | **Dart** | Application programming language |
-| **Firebase** | Backend / supporting services |
 | **SharedPreferences** | Local data persistence |
 | **Local Notifications** | Reminder notifications |
 | **Material Design** | UI components |
