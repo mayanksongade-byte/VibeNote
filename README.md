@@ -85,7 +85,11 @@ While building VibeNote, I worked with several important Flutter development con
 - Responsive mobile layouts
 
 ---
+## 📲 Download APK
 
+Try the latest Android release:
+
+[⬇️ Download VibeNote APK](https://github.com/mayanksongade-byte/VibeNote/releases/download/v1.0.0/app-release.apk)
 ## 🎯 Project Highlights
 
 VibeNote focuses on combining **functionality with a distinctive visual identity**.
